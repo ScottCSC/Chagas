@@ -20,7 +20,9 @@ import 'grupos_list_screen.dart';
 enum FiltroVer { todos, gestantes, bajoControl, agudo, tratamiento, inasistentes }
 
 class VerScreen extends StatefulWidget {
-  const VerScreen({super.key});
+  final String initialFilter; // all | today | last7
+
+  const VerScreen({super.key, this.initialFilter = 'all'});
 
   @override
   State<VerScreen> createState() => _VerScreenState();
@@ -31,10 +33,12 @@ class _VerScreenState extends State<VerScreen> {
   final _personaRepo = AppRepositories.persona;
   final _qCtrl = TextEditingController();
   final _debouncer = Debouncer(milliseconds: 300);
+  final _scrollController = ScrollController();
 
   bool _loading = true;
   String _query = '';
   FiltroVer _filtro = FiltroVer.todos;
+  String _dateFilter = 'all';
   List<PacienteResume> _resumes = [];
   Map<int, Set<String>> _modulosPorPersona = {};
   final _resumeService = PacientesResumeService();
@@ -44,6 +48,7 @@ class _VerScreenState extends State<VerScreen> {
   @override
   void initState() {
     super.initState();
+    _dateFilter = _normalizeDateFilter(widget.initialFilter);
     _load();
     _qCtrl.addListener(() {
       _debouncer.run(() {
@@ -124,13 +129,14 @@ class _VerScreenState extends State<VerScreen> {
         query: _query.isEmpty ? null : _query,
         idPersonasFilter: ids.isEmpty ? null : ids,
       );
+      final filteredByDate = _applyDateFilter(list);
 
-      final idsPersona = list.map((r) => r.idPersona).toList();
+      final idsPersona = filteredByDate.map((r) => r.idPersona).toList();
       await _cargarModulos(idsPersona);
 
       if (!mounted) return;
       setState(() {
-        _resumes = list;
+        _resumes = filteredByDate;
         _loading = false;
       });
       // Marcar que ya mostramos lista una vez; próximos refresh/filtro no re-animan.
@@ -156,16 +162,52 @@ class _VerScreenState extends State<VerScreen> {
     setState(() {
       _query = '';
       _filtro = FiltroVer.todos;
+      _dateFilter = 'all';
       _qCtrl.clear();
     });
     _load();
   }
 
-  bool get _tieneFiltros => _query.isNotEmpty || _filtro != FiltroVer.todos;
+  bool get _tieneFiltros =>
+      _query.isNotEmpty || _filtro != FiltroVer.todos || _dateFilter != 'all';
+
+  static String _normalizeDateFilter(String raw) {
+    if (raw == 'today' || raw == 'last7' || raw == 'all') return raw;
+    return 'all';
+  }
+
+  List<PacienteResume> _applyDateFilter(List<PacienteResume> list) {
+    if (_dateFilter == 'all') return list;
+    final now = DateTime.now();
+    final startToday = DateTime(now.year, now.month, now.day);
+    if (_dateFilter == 'today') {
+      return list.where((r) {
+        final created = r.createdAt;
+        return created != null && !created.isBefore(startToday);
+      }).toList();
+    }
+    final since = startToday.subtract(const Duration(days: 6));
+    return list.where((r) {
+      final created = r.createdAt;
+      return created != null && !created.isBefore(since);
+    }).toList();
+  }
+
+  String _dateFilterLabel() {
+    switch (_dateFilter) {
+      case 'today':
+        return 'Hoy';
+      case 'last7':
+        return 'Últimos 7 días';
+      default:
+        return 'Todos';
+    }
+  }
 
   @override
   void dispose() {
     _qCtrl.dispose();
+    _scrollController.dispose();
     _debouncer.dispose();
     super.dispose();
   }
@@ -204,23 +246,34 @@ class _VerScreenState extends State<VerScreen> {
           // Header con contador y botón limpiar
           Padding(
             padding: const EdgeInsets.fromLTRB(16, 12, 16, 8),
-            child: Row(
-              children: [
-                Text(
-                  'Mostrando $personasFiltradas ${personasFiltradas == 1 ? 'paciente' : 'pacientes'}',
-                  style: TextStyle(
-                    fontSize: 14,
-                    color: Theme.of(context).colorScheme.onSurfaceVariant,
+            child: Align(
+              alignment: Alignment.centerLeft,
+              child: Wrap(
+                spacing: 8,
+                runSpacing: 4,
+                crossAxisAlignment: WrapCrossAlignment.center,
+                children: [
+                  Text(
+                    'Mostrando $personasFiltradas ${personasFiltradas == 1 ? 'paciente' : 'pacientes'}',
+                    style: TextStyle(
+                      fontSize: 14,
+                      color: Theme.of(context).colorScheme.onSurfaceVariant,
+                    ),
                   ),
-                ),
-                const Spacer(),
-                if (_tieneFiltros)
-                  TextButton.icon(
-                    icon: const Icon(Icons.clear, size: 18),
-                    label: const Text('Limpiar'),
-                    onPressed: _limpiar,
-                  ),
-              ],
+                  if (_dateFilter != 'all')
+                    Chip(
+                      avatar: const Icon(Icons.calendar_today, size: 14),
+                      label: Text(_dateFilterLabel()),
+                      visualDensity: VisualDensity.compact,
+                    ),
+                  if (_tieneFiltros)
+                    TextButton.icon(
+                      icon: const Icon(Icons.clear, size: 18),
+                      label: const Text('Limpiar'),
+                      onPressed: _limpiar,
+                    ),
+                ],
+              ),
             ),
           ),
           // Buscador
@@ -267,6 +320,8 @@ class _VerScreenState extends State<VerScreen> {
                             if (mounted) showOk(context, 'Actualizado');
                           },
                           child: ListView.separated(
+                            key: const PageStorageKey<String>('ver_screen_list'),
+                            controller: _scrollController,
                             itemCount: _resumes.length,
                             separatorBuilder: (_, __) => const Divider(height: 1),
                             itemBuilder: (_, i) {
@@ -278,7 +333,7 @@ class _VerScreenState extends State<VerScreen> {
                               final subtitulo = rutFormateado.isNotEmpty
                                   ? (comuna.isNotEmpty ? '$rutFormateado • $comuna' : rutFormateado)
                                   : (comuna.isNotEmpty ? comuna : 'Sin RUT');
-                              final lastExamLine = 'Últ. examen: ${_formatDate(r.lastExamDate)} · ${r.lastExamLabel ?? '—'}';
+                              final lastExamLine = 'Últ. examen: ${_formatDate(r.lastExamDate)} · ${r.lastExamLabel}';
                               final lastControlLine = 'Últ. control: ${_formatDate(r.lastControlDate)}';
                               final modulos = _modulosPorPersona[r.idPersona] ?? <String>{};
                               
@@ -294,19 +349,19 @@ class _VerScreenState extends State<VerScreen> {
                                 idPersona: r.idPersona,
                                 onTap: () async {
                                         HapticFeedback.selectionClick();
-                                        final _ = await pushSharedAxis(
+                                        final result = await pushSharedAxis<bool>(
                                           context,
                                           DetallePersonaScreen(idPersona: r.idPersona),
                                         );
-                                        _load();
+                                        if (result == true && mounted) _load();
                                       },
                                 onEditar: () async {
                                         HapticFeedback.selectionClick();
-                                        final _ = await pushSharedAxis(
+                                        final result = await pushSharedAxis<bool>(
                                           context,
                                           EditarPersonaScreen(idPersona: r.idPersona),
                                         );
-                                        _load();
+                                        if (result == true && mounted) _load();
                                       },
                                 onLlamar: (r.telefono ?? '').isNotEmpty
                                     ? () async {

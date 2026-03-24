@@ -90,6 +90,7 @@ class PacientesResumeService {
         comuna: p.comuna,
         provincia: p.provincia,
         telefono: p.telefono,
+        createdAt: _parseDate(p.creadoEn),
         lastExamDate: fechaExamen,
         lastExamStatus: e,
         lastExamLabel: labelEstadoExamen(e, fechaExamen: fechaExamen, now: now),

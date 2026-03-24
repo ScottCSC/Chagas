@@ -9,12 +9,7 @@ import 'examenes_list_screen.dart';
 import 'grupos_list_screen.dart';
 import 'inasistentes_list_screen.dart';
 import 'registro_paciente_wizard_screen.dart';
-
-/// Índice del tab "Registrar" en MainShell (Nuevo Paciente).
-const int kRegisterTabIndex = 1;
-
-/// Índice del tab "Ver" (Pacientes) en MainShell.
-const int kVerTabIndex = 2;
+import 'ver_screen.dart';
 
 class HomeScreen extends StatefulWidget {
   final void Function(int tabIndex) onGoToTab;
@@ -188,7 +183,18 @@ class _HomeScreenState extends State<HomeScreen> {
                   : _ResumenGrid(
                       key: const ValueKey('stats'),
                       stats: _stats ?? {},
-                      onGoToTab: widget.onGoToTab,
+                      onOpenVerToday: () => pushFade(
+                        context,
+                        const VerScreen(initialFilter: 'today'),
+                      ),
+                      onOpenVerLast7: () => pushFade(
+                        context,
+                        const VerScreen(initialFilter: 'last7'),
+                      ),
+                      onOpenVerAll: () => pushFade(
+                        context,
+                        const VerScreen(initialFilter: 'all'),
+                      ),
                       onPushGrupos: () => pushFade(context, GruposListScreen()),
                     ),
             ),
@@ -235,13 +241,17 @@ class _HomeScreenState extends State<HomeScreen> {
 
 class _ResumenGrid extends StatelessWidget {
   final Map<String, int> stats;
-  final void Function(int) onGoToTab;
+  final VoidCallback onOpenVerToday;
+  final VoidCallback onOpenVerLast7;
+  final VoidCallback onOpenVerAll;
   final VoidCallback onPushGrupos;
 
   const _ResumenGrid({
     super.key,
     required this.stats,
-    required this.onGoToTab,
+    required this.onOpenVerToday,
+    required this.onOpenVerLast7,
+    required this.onOpenVerAll,
     required this.onPushGrupos,
   });
 
@@ -259,13 +269,13 @@ class _ResumenGrid extends StatelessWidget {
           label: 'Personas hoy',
           value: stats['hoy'] ?? 0,
           cta: 'Ver hoy',
-          onTap: () => onGoToTab(kVerTabIndex),
+          onTap: onOpenVerToday,
         ),
         _KpiCard(
           label: 'Últimos 7 días',
           value: stats['semana'] ?? 0,
           cta: 'Ver registros',
-          onTap: () => onGoToTab(kVerTabIndex),
+          onTap: onOpenVerLast7,
         ),
         _KpiCard(
           label: 'Operativos activos',
@@ -277,7 +287,7 @@ class _ResumenGrid extends StatelessWidget {
           label: 'Total personas',
           value: stats['total'] ?? 0,
           cta: 'Ver todos',
-          onTap: () => onGoToTab(kVerTabIndex),
+          onTap: onOpenVerAll,
         ),
       ],
     );

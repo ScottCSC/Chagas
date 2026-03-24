@@ -8,6 +8,7 @@ class PacienteResume {
   final String? comuna;
   final String? provincia;
   final String? telefono;
+  final DateTime? createdAt;
 
   final DateTime? lastExamDate;
   final EstadoExamen lastExamStatus;
@@ -27,6 +28,7 @@ class PacienteResume {
     this.comuna,
     this.provincia,
     this.telefono,
+    this.createdAt,
     this.lastExamDate,
     required this.lastExamStatus,
     required this.lastExamLabel,

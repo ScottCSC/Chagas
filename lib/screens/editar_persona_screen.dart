@@ -302,10 +302,14 @@ class _EditarPersonaScreenState extends State<EditarPersonaScreen> {
         });
       }
 
-      await supabase
+      debugPrint('isAdmin=$_isAdmin payload=$updateData');
+
+      final res = await supabase
           .from('persona')
           .update(updateData)
-          .eq('id_persona', widget.idPersona);
+          .eq('id_persona', widget.idPersona)
+          .select();
+      debugPrint('UPDATE RES: $res');
 
       // actualizar "original" para que el botón vuelva a desactivarse
       _original = {
@@ -320,6 +324,7 @@ class _EditarPersonaScreenState extends State<EditarPersonaScreen> {
       showOk(context, _isAdmin ? 'Cambios guardados (Admin)' : 'Datos de contacto actualizados');
       Navigator.pop(context, true); // devolvemos "true" para refrescar ficha
     } catch (e) {
+      debugPrint('ERROR UPDATE: $e');
       setState(() => guardando = false);
       if (!mounted) return;
       showErr(context, 'Error al guardar cambios: $e');
@@ -375,7 +380,7 @@ class _EditarPersonaScreenState extends State<EditarPersonaScreen> {
             const SizedBox(height: 8),
             TextField(
               controller: _nombreCtrl,
-              readOnly: !_isAdmin,
+              enabled: _isAdmin,
               decoration: const InputDecoration(labelText: 'Nombre'),
             ),
             const SizedBox(height: 12),
@@ -399,14 +404,14 @@ class _EditarPersonaScreenState extends State<EditarPersonaScreen> {
             const SizedBox(height: 12),
             TextField(
               controller: _edadCtrl,
-              readOnly: !_isAdmin,
+              enabled: _isAdmin,
               keyboardType: TextInputType.number,
               decoration: const InputDecoration(labelText: 'Edad'),
             ),
             const SizedBox(height: 12),
             TextField(
               controller: _sexoCtrl,
-              readOnly: !_isAdmin,
+              enabled: _isAdmin,
               decoration: const InputDecoration(labelText: 'Sexo'),
             ),
             const Divider(height: 32),
