@@ -4,11 +4,10 @@ import 'package:flutter/services.dart';
 import '../repositories/app_repositories.dart';
 import '../services/network_service.dart';
 import '../utils/nav.dart';
-import 'detalle_persona_screen.dart';
-import 'examenes_list_screen.dart';
+import 'nuevo_caso_screen.dart';
+import 'detalle_caso_screen.dart';
 import 'grupos_list_screen.dart';
-import 'inasistentes_list_screen.dart';
-import 'registro_paciente_wizard_screen.dart';
+import 'sectores_list_screen.dart';
 import 'ver_screen.dart';
 
 class HomeScreen extends StatefulWidget {
@@ -97,13 +96,13 @@ class _HomeScreenState extends State<HomeScreen> {
         child: ListView(
           padding: const EdgeInsets.all(16),
           children: [
-            // 1) CTA principal: Nuevo Paciente (abre wizard directo)
+            // 1) CTA principal: Nuevo Caso (wizard visual epidemiológico)
             SizedBox(
               width: double.infinity,
               child: ElevatedButton.icon(
-                icon: const Icon(Icons.person_add_alt_1, size: 24),
+                icon: const Icon(Icons.add_circle_outline, size: 24),
                 label: const Text(
-                  '+ Nuevo paciente',
+                  '+ Nuevo caso',
                   style: TextStyle(fontSize: 18, fontWeight: FontWeight.w600),
                 ),
                 style: ElevatedButton.styleFrom(
@@ -116,18 +115,18 @@ class _HomeScreenState extends State<HomeScreen> {
                 onPressed: () async {
                   final result = await pushSharedAxis(
                     context,
-                    const RegistroPacienteWizardScreen(),
+                    const NuevoCasoScreen(),
                   );
                   if (!context.mounted) return;
                   if (result == 'registrar_otro') {
                     await pushSharedAxis(
                       context,
-                      const RegistroPacienteWizardScreen(),
+                      const NuevoCasoScreen(),
                     );
                   } else if (result is int) {
                     await pushSharedAxis(
                       context,
-                      DetallePersonaScreen(idPersona: result),
+                      DetalleCasoScreen(idCaso: result),
                     );
                   }
                 },
@@ -180,7 +179,7 @@ class _HomeScreenState extends State<HomeScreen> {
                       padding: EdgeInsets.all(20),
                       child: Center(child: CircularProgressIndicator()),
                     )
-                  : _ResumenGrid(
+                    : _ResumenGrid(
                       key: const ValueKey('stats'),
                       stats: _stats ?? {},
                       onOpenVerToday: () => pushFade(
@@ -195,7 +194,10 @@ class _HomeScreenState extends State<HomeScreen> {
                         context,
                         const VerScreen(initialFilter: 'all'),
                       ),
-                      onPushGrupos: () => pushFade(context, GruposListScreen()),
+                      onOpenSectores: () => pushFade(
+                        context,
+                        const SectoresListScreen(),
+                      ),
                     ),
             ),
             const SizedBox(height: 20),
@@ -210,15 +212,9 @@ class _HomeScreenState extends State<HomeScreen> {
               sinControl: _stats?['sinControl'] ?? 0,
               examenesPendientes: _stats?['examenesPendientes'] ?? 0,
               examenesAtrasados: _stats?['examenesAtrasados'] ?? 0,
-              onSinControl: () => pushFade(context, const InasistentesListScreen()),
-              onExamenesPendientes: () => pushFade(
-                context,
-                const ExamenesListScreen(initialFilter: 'pending'),
-              ),
-              onExamenesAtrasados: () => pushFade(
-                context,
-                const ExamenesListScreen(initialFilter: 'overdue'),
-              ),
+              onSinControl: null,
+              onExamenesPendientes: null,
+              onExamenesAtrasados: null,
             ),
             const SizedBox(height: 16),
 
@@ -226,7 +222,7 @@ class _HomeScreenState extends State<HomeScreen> {
             const Padding(
               padding: EdgeInsets.symmetric(horizontal: 8),
               child: Text(
-                '💡 Toca "Pacientes" en la barra inferior para buscar y filtrar por gestantes, tratamiento o inasistentes.',
+                '💡 Toca "Casos" en la barra inferior para buscar y filtrar.',
                 style: TextStyle(color: Colors.black54, fontSize: 14),
                 textAlign: TextAlign.center,
               ),
@@ -244,7 +240,7 @@ class _ResumenGrid extends StatelessWidget {
   final VoidCallback onOpenVerToday;
   final VoidCallback onOpenVerLast7;
   final VoidCallback onOpenVerAll;
-  final VoidCallback onPushGrupos;
+  final VoidCallback onOpenSectores;
 
   const _ResumenGrid({
     super.key,
@@ -252,7 +248,7 @@ class _ResumenGrid extends StatelessWidget {
     required this.onOpenVerToday,
     required this.onOpenVerLast7,
     required this.onOpenVerAll,
-    required this.onPushGrupos,
+    required this.onOpenSectores,
   });
 
   @override
@@ -266,25 +262,25 @@ class _ResumenGrid extends StatelessWidget {
       childAspectRatio: 1.35,
       children: [
         _KpiCard(
-          label: 'Personas hoy',
+          label: 'Casos hoy',
           value: stats['hoy'] ?? 0,
           cta: 'Ver hoy',
           onTap: onOpenVerToday,
         ),
         _KpiCard(
-          label: 'Últimos 7 días',
+          label: 'Casos últimos 7 días',
           value: stats['semana'] ?? 0,
           cta: 'Ver registros',
           onTap: onOpenVerLast7,
         ),
         _KpiCard(
-          label: 'Operativos activos',
-          value: stats['operativos'] ?? 0,
-          cta: 'Ver operativo',
-          onTap: onPushGrupos,
+          label: 'Sectores activos',
+          value: stats['sectoresActivos'] ?? 0,
+          cta: 'Ver listado',
+          onTap: onOpenSectores,
         ),
         _KpiCard(
-          label: 'Total personas',
+          label: 'Total casos',
           value: stats['total'] ?? 0,
           cta: 'Ver todos',
           onTap: onOpenVerAll,
@@ -357,9 +353,9 @@ class _PendientesCard extends StatelessWidget {
   final int sinControl;
   final int examenesPendientes;
   final int examenesAtrasados;
-  final VoidCallback onSinControl;
-  final VoidCallback onExamenesPendientes;
-  final VoidCallback onExamenesAtrasados;
+  final VoidCallback? onSinControl;
+  final VoidCallback? onExamenesPendientes;
+  final VoidCallback? onExamenesAtrasados;
 
   const _PendientesCard({
     required this.sinControl,
@@ -391,7 +387,7 @@ class _PendientesCard extends StatelessWidget {
                       color: Colors.orange.shade700,
                     ),
                     title: Text(
-                      '$sinControl ${sinControl == 1 ? 'paciente' : 'pacientes'} sin control',
+                      '$sinControl ${sinControl == 1 ? 'caso' : 'casos'} sin seguimiento',
                     ),
                     trailing: const Icon(Icons.chevron_right),
                     onTap: onSinControl,

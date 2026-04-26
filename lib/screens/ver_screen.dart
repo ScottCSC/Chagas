@@ -1,23 +1,18 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:url_launcher/url_launcher.dart';
 
-import '../models/paciente_resume.dart';
+import '../models/caso_epidemiologico.dart';
 import '../repositories/app_repositories.dart';
 import '../services/network_service.dart';
-import '../services/pacientes_resume_service.dart';
 import '../utils/debouncer.dart';
+import '../utils/epidemiologia_ui.dart';
 import '../utils/nav.dart';
-import '../utils/rut_utils.dart';
-import '../utils/seguimiento_rules.dart';
 import '../utils/toast.dart';
 import '../widgets/states.dart';
-import 'detalle_persona_screen.dart';
-import 'editar_persona_screen.dart';
-import 'examenes_list_screen.dart';
+import 'detalle_caso_screen.dart';
 import 'grupos_list_screen.dart';
 
-enum FiltroVer { todos, gestantes, bajoControl, agudo, tratamiento, inasistentes }
+enum FiltroVer { todos, nuevo, reingreso, tratado }
 
 class VerScreen extends StatefulWidget {
   final String initialFilter; // all | today | last7
@@ -29,8 +24,9 @@ class VerScreen extends StatefulWidget {
 }
 
 class _VerScreenState extends State<VerScreen> {
-  final _modulosRepo = AppRepositories.modulos;
-  final _personaRepo = AppRepositories.persona;
+  final _casoRepo = AppRepositories.casoEpidemiologico;
+  final _sectorRepo = AppRepositories.sector;
+
   final _qCtrl = TextEditingController();
   final _debouncer = Debouncer(milliseconds: 300);
   final _scrollController = ScrollController();
@@ -39,9 +35,8 @@ class _VerScreenState extends State<VerScreen> {
   String _query = '';
   FiltroVer _filtro = FiltroVer.todos;
   String _dateFilter = 'all';
-  List<PacienteResume> _resumes = [];
-  Map<int, Set<String>> _modulosPorPersona = {};
-  final _resumeService = PacientesResumeService();
+  List<CasoEpidemiologico> _casos = [];
+  Map<int, String> _sectorNombrePorId = {};
   Map<FiltroVer, int> _contadoresFiltros = {};
   bool _animatedOnce = false;
 
@@ -55,62 +50,35 @@ class _VerScreenState extends State<VerScreen> {
         if (!mounted) return;
         setState(() {
           _query = _qCtrl.text.trim();
-          _load();
         });
+        _recalcularDesdeCache();
       });
     });
   }
 
-  Future<List<int>> _idsPorFiltro(FiltroVer f) async {
-    String table;
-    switch (f) {
-      case FiltroVer.gestantes:
-        table = 'chagas_gestantes';
-        break;
-      case FiltroVer.bajoControl:
-        table = 'chagas_bajo_control';
-        break;
-      case FiltroVer.agudo:
-        table = 'chagas_agudo';
-        break;
-      case FiltroVer.tratamiento:
-        table = 'chagas_tratamiento';
-        break;
-      case FiltroVer.inasistentes:
-        table = 'chagas_inasistentes';
-        break;
-      case FiltroVer.todos:
-        return [];
-    }
-    return _modulosRepo.listPersonaIds(table);
+  void _recalcularDesdeCache() {
+    // solo filtro cliente; datos ya en _casos
+    setState(() {});
   }
 
-  Future<void> _cargarContadores() async {
-    try {
-      final contadores = <FiltroVer, int>{};
-      for (final filtro in FiltroVer.values) {
-        if (filtro == FiltroVer.todos) {
-          contadores[filtro] = await _personaRepo.count();
-        } else {
-          final ids = await _idsPorFiltro(filtro);
-          contadores[filtro] = ids.length;
-        }
+  Map<FiltroVer, int> _contadoresFrom(List<CasoEpidemiologico> base) {
+    final contadores = <FiltroVer, int>{};
+    for (final filtro in FiltroVer.values) {
+      if (filtro == FiltroVer.todos) {
+        contadores[filtro] = base.length;
+      } else {
+        final clave = switch (filtro) {
+          FiltroVer.nuevo => 'nuevo',
+          FiltroVer.reingreso => 'reingreso',
+          FiltroVer.tratado => 'tratado',
+          FiltroVer.todos => '',
+        };
+        contadores[filtro] = base
+            .where((c) => EpidemiologiaUi.claveEstadoCaso(c.estadoActual) == clave)
+            .length;
       }
-      if (mounted) {
-        setState(() => _contadoresFiltros = contadores);
-      }
-    } catch (_) {}
-  }
-
-  Future<void> _cargarModulos(List<int> idsPersona) async {
-    if (idsPersona.isEmpty) {
-      setState(() => _modulosPorPersona = {});
-      return;
     }
-    try {
-      final modulosMap = await _modulosRepo.getModulosByPersonaIds(idsPersona);
-      if (mounted) setState(() => _modulosPorPersona = modulosMap);
-    } catch (_) {}
+    return contadores;
   }
 
   Future<void> _load() async {
@@ -122,24 +90,19 @@ class _VerScreenState extends State<VerScreen> {
     setState(() => _loading = true);
 
     try {
-      _cargarContadores();
-
-      final ids = await _idsPorFiltro(_filtro);
-      final list = await _resumeService.fetchResumes(
-        query: _query.isEmpty ? null : _query,
-        idPersonasFilter: ids.isEmpty ? null : ids,
-      );
-      final filteredByDate = _applyDateFilter(list);
-
-      final idsPersona = filteredByDate.map((r) => r.idPersona).toList();
-      await _cargarModulos(idsPersona);
+      final list = await _casoRepo.getCasos();
+      final ids = list.map((c) => c.idSector).whereType<int>().toSet().toList();
+      final sectores = await _sectorRepo.getSectoresByIds(ids);
+      final map = {for (final s in sectores) s.idSector: s.nombreSector};
 
       if (!mounted) return;
+      final contadores = _contadoresFrom(list);
       setState(() {
-        _resumes = filteredByDate;
+        _casos = list;
+        _sectorNombrePorId = map;
+        _contadoresFiltros = contadores;
         _loading = false;
       });
-      // Marcar que ya mostramos lista una vez; próximos refresh/filtro no re-animan.
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (mounted) setState(() => _animatedOnce = true);
       });
@@ -147,11 +110,11 @@ class _VerScreenState extends State<VerScreen> {
       if (!mounted) return;
       setState(() {
         _loading = false;
-        _resumes = [];
+        _casos = [];
       });
       showErrWithAction(
         context,
-        'Error cargando pacientes: $e',
+        'Error cargando casos: $e',
         actionLabel: 'Reintentar',
         onAction: _load,
       );
@@ -165,31 +128,64 @@ class _VerScreenState extends State<VerScreen> {
       _dateFilter = 'all';
       _qCtrl.clear();
     });
-    _load();
   }
 
   bool get _tieneFiltros =>
       _query.isNotEmpty || _filtro != FiltroVer.todos || _dateFilter != 'all';
+
+  List<CasoEpidemiologico> get _baseFiltrada {
+    var out = _applyDateFilter(_casos);
+
+    if (_filtro != FiltroVer.todos) {
+      final clave = switch (_filtro) {
+        FiltroVer.nuevo => 'nuevo',
+        FiltroVer.reingreso => 'reingreso',
+        FiltroVer.tratado => 'tratado',
+        FiltroVer.todos => '',
+      };
+      out = out
+          .where((c) => EpidemiologiaUi.claveEstadoCaso(c.estadoActual) == clave)
+          .toList();
+    }
+
+    final q = _query.trim().toLowerCase();
+    if (q.isNotEmpty) {
+      out = out.where((c) {
+        final code = (c.codigoCaso ?? '').toLowerCase();
+        final sec = (_sectorNombrePorId[c.idSector] ?? '').toLowerCase();
+        final oc = (c.ocupacion ?? '').toLowerCase();
+        final idStr = c.idCaso?.toString() ?? '';
+        return code.contains(q) || sec.contains(q) || oc.contains(q) || idStr.contains(q);
+      }).toList();
+    }
+    return out;
+  }
 
   static String _normalizeDateFilter(String raw) {
     if (raw == 'today' || raw == 'last7' || raw == 'all') return raw;
     return 'all';
   }
 
-  List<PacienteResume> _applyDateFilter(List<PacienteResume> list) {
+  List<CasoEpidemiologico> _applyDateFilter(List<CasoEpidemiologico> list) {
     if (_dateFilter == 'all') return list;
     final now = DateTime.now();
     final startToday = DateTime(now.year, now.month, now.day);
     if (_dateFilter == 'today') {
-      return list.where((r) {
-        final created = r.createdAt;
-        return created != null && !created.isBefore(startToday);
+      return list.where((c) {
+        final t = c.fechaRegistro ?? c.creadoEn;
+        if (t == null) return false;
+        final local = t.toLocal();
+        final d = DateTime(local.year, local.month, local.day);
+        return !d.isBefore(startToday);
       }).toList();
     }
     final since = startToday.subtract(const Duration(days: 6));
-    return list.where((r) {
-      final created = r.createdAt;
-      return created != null && !created.isBefore(since);
+    return list.where((c) {
+      final t = c.fechaRegistro ?? c.creadoEn;
+      if (t == null) return false;
+      final local = t.toLocal();
+      final d = DateTime(local.year, local.month, local.day);
+      return !d.isBefore(since);
     }).toList();
   }
 
@@ -212,38 +208,30 @@ class _VerScreenState extends State<VerScreen> {
     super.dispose();
   }
 
-  static String _formatDate(DateTime? d) {
-    if (d == null) return '—';
-    return '${d.day.toString().padLeft(2, '0')}/${d.month.toString().padLeft(2, '0')}/${d.year}';
-  }
-
   @override
   Widget build(BuildContext context) {
-    final personasFiltradas = _resumes.length;
-    
+    final filtrados = _baseFiltrada;
+    final n = filtrados.length;
+
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Ver pacientes', style: TextStyle(fontSize: 20)),
+        title: const Text('Ver casos', style: TextStyle(fontSize: 20)),
         actions: [
           PopupMenuButton<String>(
             icon: const Icon(Icons.more_vert),
             onSelected: (value) {
               if (value == 'grupos') {
                 pushFade(context, GruposListScreen());
-              } else if (value == 'examenes') {
-                pushFade(context, const ExamenesListScreen());
               }
             },
             itemBuilder: (_) => [
               const PopupMenuItem(value: 'grupos', child: Text('Ver grupos / operativos')),
-              const PopupMenuItem(value: 'examenes', child: Text('Ver exámenes')),
             ],
           ),
         ],
       ),
       body: Column(
         children: [
-          // Header con contador y botón limpiar
           Padding(
             padding: const EdgeInsets.fromLTRB(16, 12, 16, 8),
             child: Align(
@@ -254,7 +242,7 @@ class _VerScreenState extends State<VerScreen> {
                 crossAxisAlignment: WrapCrossAlignment.center,
                 children: [
                   Text(
-                    'Mostrando $personasFiltradas ${personasFiltradas == 1 ? 'paciente' : 'pacientes'}',
+                    'Mostrando $n ${n == 1 ? "caso" : "casos"}',
                     style: TextStyle(
                       fontSize: 14,
                       color: Theme.of(context).colorScheme.onSurfaceVariant,
@@ -276,30 +264,26 @@ class _VerScreenState extends State<VerScreen> {
               ),
             ),
           ),
-          // Buscador
           Padding(
             padding: const EdgeInsets.symmetric(horizontal: 12),
             child: TextField(
               controller: _qCtrl,
               decoration: const InputDecoration(
                 prefixIcon: Icon(Icons.search),
-                labelText: 'Buscar por nombre o RUT',
+                labelText: 'Buscar por código, sector u ocupación',
               ),
             ),
           ),
           const SizedBox(height: 8),
-          // Chips con contadores
           SingleChildScrollView(
             scrollDirection: Axis.horizontal,
             padding: const EdgeInsets.symmetric(horizontal: 12),
             child: Row(
               children: [
                 _chip('Todos', FiltroVer.todos),
-                _chip('Gestantes', FiltroVer.gestantes),
-                _chip('Bajo control', FiltroVer.bajoControl),
-                _chip('Agudo', FiltroVer.agudo),
-                _chip('Tratamiento', FiltroVer.tratamiento),
-                _chip('Inasistentes', FiltroVer.inasistentes),
+                _chip('Caso nuevo', FiltroVer.nuevo),
+                _chip('Reingreso', FiltroVer.reingreso),
+                _chip('Tratado', FiltroVer.tratado),
               ],
             ),
           ),
@@ -309,7 +293,7 @@ class _VerScreenState extends State<VerScreen> {
               duration: const Duration(milliseconds: 250),
               child: _loading
                   ? const AppLoading(key: ValueKey('loading'))
-                  : _resumes.isEmpty
+                  : filtrados.isEmpty
                       ? const AppEmptyState(key: ValueKey('empty'), text: 'Sin resultados')
                       : RefreshIndicator(
                           key: const ValueKey('list'),
@@ -317,65 +301,40 @@ class _VerScreenState extends State<VerScreen> {
                             if (!NetworkService.instance.isOnline) return;
                             HapticFeedback.lightImpact();
                             await _load();
-                            if (mounted) showOk(context, 'Actualizado');
+                            if (!context.mounted) return;
+                            showOk(context, 'Actualizado');
                           },
                           child: ListView.separated(
                             key: const PageStorageKey<String>('ver_screen_list'),
                             controller: _scrollController,
-                            itemCount: _resumes.length,
-                            separatorBuilder: (_, __) => const Divider(height: 1),
+                            itemCount: filtrados.length,
+                            separatorBuilder: (context, _) => const Divider(height: 1),
                             itemBuilder: (_, i) {
-                              final r = _resumes[i];
-                              final rutFormateado = (r.rut ?? '').trim().isEmpty
-                                  ? ''
-                                  : RutUtils.formatearParaUI(r.rut!);
-                              final comuna = r.comuna ?? '';
-                              final subtitulo = rutFormateado.isNotEmpty
-                                  ? (comuna.isNotEmpty ? '$rutFormateado • $comuna' : rutFormateado)
-                                  : (comuna.isNotEmpty ? comuna : 'Sin RUT');
-                              final lastExamLine = 'Últ. examen: ${_formatDate(r.lastExamDate)} · ${r.lastExamLabel}';
-                              final lastControlLine = 'Últ. control: ${_formatDate(r.lastControlDate)}';
-                              final modulos = _modulosPorPersona[r.idPersona] ?? <String>{};
-                              
-                              final tile = _PersonaTile(
-                                nombre: r.nombre,
-                                subtitulo: subtitulo,
-                                lastExamLine: lastExamLine,
-                                lastControlLine: lastControlLine,
-                                overallStatus: r.overallStatus,
-                                overallLabel: r.overallLabel,
-                                modulos: modulos,
-                                telefono: r.telefono ?? '',
-                                idPersona: r.idPersona,
+                              final c = filtrados[i];
+                              final idCaso = c.idCaso;
+                              if (idCaso == null) return const SizedBox.shrink();
+
+                              final sec = c.idSector != null
+                                  ? (_sectorNombrePorId[c.idSector!] ?? '—')
+                                  : '—';
+                              final tile = _CasoTile(
+                                codigo: c.codigoCaso ?? '—',
+                                estadoKey: c.estadoActual,
+                                sector: sec,
+                                edad: c.edad,
+                                genero: EpidemiologiaUi.generoLabelEpi(c.genero),
+                                ocupacion: (c.ocupacion == null || c.ocupacion!.isEmpty) ? '—' : c.ocupacion!,
+                                idCaso: idCaso,
                                 onTap: () async {
-                                        HapticFeedback.selectionClick();
-                                        final result = await pushSharedAxis<bool>(
-                                          context,
-                                          DetallePersonaScreen(idPersona: r.idPersona),
-                                        );
-                                        if (result == true && mounted) _load();
-                                      },
-                                onEditar: () async {
-                                        HapticFeedback.selectionClick();
-                                        final result = await pushSharedAxis<bool>(
-                                          context,
-                                          EditarPersonaScreen(idPersona: r.idPersona),
-                                        );
-                                        if (result == true && mounted) _load();
-                                      },
-                                onLlamar: (r.telefono ?? '').isNotEmpty
-                                    ? () async {
-                                        HapticFeedback.selectionClick();
-                                        final uri = Uri.parse('tel:${r.telefono}');
-                                        if (await canLaunchUrl(uri)) {
-                                          await launchUrl(uri);
-                                        } else {
-                                          showErr(context, 'No se puede realizar la llamada');
-                                        }
-                                      }
-                                    : null,
+                                  HapticFeedback.selectionClick();
+                                  final r = await pushSharedAxis<bool>(
+                                    context,
+                                    DetalleCasoScreen(idCaso: idCaso),
+                                  );
+                                  if (!mounted) return;
+                                  if (r == true) _load();
+                                },
                               );
-                              
                               if (_animatedOnce) return tile;
                               return TweenAnimationBuilder<double>(
                                 tween: Tween(begin: 0, end: 1),
@@ -403,7 +362,7 @@ class _VerScreenState extends State<VerScreen> {
     final selected = _filtro == f;
     final count = _contadoresFiltros[f] ?? 0;
     final label = count > 0 ? '$text ($count)' : text;
-    
+
     return Padding(
       padding: const EdgeInsets.only(right: 8),
       child: ChoiceChip(
@@ -411,16 +370,13 @@ class _VerScreenState extends State<VerScreen> {
         label: Text(label),
         onSelected: (_) {
           HapticFeedback.selectionClick();
-          setState(() {
-            _filtro = f;
-            _load();
-          });
+          setState(() => _filtro = f);
         },
         selectedColor: Theme.of(context).colorScheme.primaryContainer,
         labelStyle: TextStyle(
           fontWeight: selected ? FontWeight.w600 : FontWeight.normal,
-          color: selected 
-              ? Theme.of(context).colorScheme.onPrimaryContainer 
+          color: selected
+              ? Theme.of(context).colorScheme.onPrimaryContainer
               : null,
         ),
       ),
@@ -428,196 +384,68 @@ class _VerScreenState extends State<VerScreen> {
   }
 }
 
-class _PersonaTile extends StatelessWidget {
-  final String nombre;
-  final String subtitulo;
-  final String? lastExamLine;
-  final String? lastControlLine;
-  final Semaforo overallStatus;
-  final String? overallLabel;
-  final Set<String> modulos;
-  final String telefono;
-  final int idPersona;
+class _CasoTile extends StatelessWidget {
+  final String codigo;
+  final String? estadoKey;
+  final String sector;
+  final int? edad;
+  final String genero;
+  final String ocupacion;
+  final int idCaso;
   final VoidCallback? onTap;
-  final VoidCallback? onEditar;
-  final VoidCallback? onLlamar;
 
-  const _PersonaTile({
-    required this.nombre,
-    required this.subtitulo,
-    this.lastExamLine,
-    this.lastControlLine,
-    required this.overallStatus,
-    this.overallLabel,
-    required this.modulos,
-    required this.telefono,
-    required this.idPersona,
+  const _CasoTile({
+    required this.codigo,
+    required this.estadoKey,
+    required this.sector,
+    required this.edad,
+    required this.genero,
+    required this.ocupacion,
+    required this.idCaso,
     this.onTap,
-    this.onEditar,
-    this.onLlamar,
   });
-
-  static Color _colorSemaforo(Semaforo s) {
-    switch (s) {
-      case Semaforo.rojo:
-        return Colors.red;
-      case Semaforo.amarillo:
-        return Colors.amber;
-      case Semaforo.verde:
-        return Colors.green;
-    }
-  }
 
   @override
   Widget build(BuildContext context) {
-    final tile = ListTile(
-      title: Text(
-        nombre,
-        style: const TextStyle(fontWeight: FontWeight.bold),
-      ),
-      subtitle: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Text(subtitulo),
-          const SizedBox(height: 2),
-          Text(
-            lastExamLine ?? 'Últ. examen: —',
-            style: TextStyle(fontSize: 12, color: Theme.of(context).colorScheme.onSurfaceVariant),
-          ),
-          Text(
-            lastControlLine ?? 'Últ. control: —',
-            style: TextStyle(fontSize: 12, color: Theme.of(context).colorScheme.onSurfaceVariant),
-          ),
-          if (modulos.isNotEmpty) ...[
-            const SizedBox(height: 4),
-            Wrap(
-              spacing: 4,
-              runSpacing: 4,
-              children: modulos.map((m) {
-                final labels = {
-                  'BC': 'BC',
-                  'G': 'G',
-                  'A': 'A',
-                  'T': 'T',
-                  'I': 'I',
-                  'E': 'E',
-                };
-                return Chip(
-                  label: Text(
-                    labels[m] ?? m,
-                    style: const TextStyle(fontSize: 11),
-                  ),
-                  padding: EdgeInsets.zero,
-                  materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                  visualDensity: VisualDensity.compact,
-                );
-              }).toList(),
-            ),
-          ],
-        ],
-      ),
-      trailing: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-            decoration: BoxDecoration(
-              color: _colorSemaforo(overallStatus).withOpacity(0.2),
-              borderRadius: BorderRadius.circular(12),
-              border: Border.all(color: _colorSemaforo(overallStatus), width: 1),
-            ),
-            child: Text(
-              overallLabel ?? 'Al día',
-              style: TextStyle(
-                fontSize: 11,
-                fontWeight: FontWeight.w600,
-                color: _colorSemaforo(overallStatus),
-              ),
-            ),
-          ),
-          if (modulos.isNotEmpty)
-            Padding(
-              padding: const EdgeInsets.only(left: 6, right: 8),
-              child: Wrap(
-                spacing: 2,
-                children: modulos.map((m) {
-                  final colors = {
-                    'BC': Colors.blue,
-                    'G': Colors.pink,
-                    'A': Colors.orange,
-                    'T': Colors.green,
-                    'I': Colors.red,
-                    'E': Colors.purple,
-                  };
-                  return Container(
-                    width: 6,
-                    height: 6,
-                    decoration: BoxDecoration(
-                      color: colors[m] ?? Colors.grey,
-                      shape: BoxShape.circle,
-                    ),
-                  );
-                }).toList(),
-              ),
-            ),
-          const Icon(Icons.chevron_right),
-        ],
-      ),
-      onTap: onTap,
-    );
+    final k = EpidemiologiaUi.claveEstadoCaso(estadoKey);
+    final color = EpidemiologiaUi.getEstadoCasoColor(k);
+    final label = EpidemiologiaUi.getEstadoCasoLabel(k);
 
-    if (onEditar == null && onLlamar == null) {
-      return tile;
-    }
-
-    return Dismissible(
-      key: Key('persona_$idPersona'),
-      direction: onLlamar != null 
-          ? DismissDirection.horizontal 
-          : DismissDirection.endToStart,
-      background: Container(
-        color: Colors.green,
-        alignment: Alignment.centerLeft,
-        padding: const EdgeInsets.only(left: 20),
-        child: const Row(
-          children: [
-            Icon(Icons.phone, color: Colors.white),
-            SizedBox(width: 8),
-            Text(
-              'Llamar',
-              style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
-            ),
-          ],
+    return Card(
+      margin: EdgeInsets.zero,
+      child: ListTile(
+        title: Text(
+          codigo,
+          style: const TextStyle(fontWeight: FontWeight.w800),
         ),
-      ),
-      secondaryBackground: Container(
-        color: Colors.blue,
-        alignment: Alignment.centerRight,
-        padding: const EdgeInsets.only(right: 20),
-        child: const Row(
-          mainAxisAlignment: MainAxisAlignment.end,
-          children: [
-            Text(
-              'Editar contacto',
-              style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
-            ),
-            SizedBox(width: 8),
-            Icon(Icons.edit, color: Colors.white),
-          ],
+        subtitle: Padding(
+          padding: const EdgeInsets.only(top: 6),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(label, style: TextStyle(fontWeight: FontWeight.w600, color: color)),
+              const SizedBox(height: 8),
+              Text('📍 Sector: $sector'),
+              Text('Edad: ${edad != null ? "$edad" : "—"}'),
+              Text('Género: $genero'),
+              Text('Ocupación: $ocupacion'),
+            ],
+          ),
         ),
+        trailing: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+          decoration: BoxDecoration(
+            color: color.withValues(alpha: 0.12),
+            borderRadius: BorderRadius.circular(12),
+            border: Border.all(color: color.withValues(alpha: 0.5)),
+          ),
+          child: Text(
+            label,
+            style: TextStyle(fontSize: 12, fontWeight: FontWeight.w700, color: color),
+          ),
+        ),
+        onTap: onTap,
       ),
-      confirmDismiss: (direction) async {
-        if (direction == DismissDirection.startToEnd && onLlamar != null) {
-          onLlamar!();
-          return false; // No eliminar el tile, solo ejecutar acción
-        } else if (direction == DismissDirection.endToStart && onEditar != null) {
-          onEditar!();
-          return false; // No eliminar el tile, solo ejecutar acción
-        }
-        return false;
-      },
-      child: tile,
     );
   }
 }
