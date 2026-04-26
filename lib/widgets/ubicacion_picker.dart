@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../utils/app_messages.dart';
 import '../utils/toast.dart';
 import 'package:geolocator/geolocator.dart';
 
@@ -67,7 +68,7 @@ class _UbicacionPickerState extends State<UbicacionPicker> {
       widget.onUbicacionSeleccionada(lat!, lng!);
     } catch (e) {
       setState(() => cargando = false);
-      showErr(context, 'Error al obtener ubicación: $e');
+      showErr(context, AppMessages.errorUbicacion);
     }
   }
 

@@ -4,12 +4,12 @@ import 'package:flutter/services.dart';
 import '../repositories/app_repositories.dart';
 import '../services/network_service.dart';
 import '../utils/nav.dart';
+import '../widgets/states.dart';
 import 'detalle_persona_screen.dart';
 import 'examenes_list_screen.dart';
 import 'grupos_list_screen.dart';
 import 'inasistentes_list_screen.dart';
 import 'registro_paciente_wizard_screen.dart';
-import 'ver_screen.dart';
 
 class HomeScreen extends StatefulWidget {
   final void Function(int tabIndex) onGoToTab;
@@ -90,261 +90,244 @@ class _HomeScreenState extends State<HomeScreen> {
           ],
         ),
         body: RefreshIndicator(
-        onRefresh: () async {
-          if (!NetworkService.instance.isOnline) return;
-          await _load();
-        },
-        child: ListView(
-          padding: const EdgeInsets.all(16),
-          children: [
-            // 1) CTA principal: Nuevo Paciente (abre wizard directo)
-            SizedBox(
-              width: double.infinity,
-              child: ElevatedButton.icon(
-                icon: const Icon(Icons.person_add_alt_1, size: 24),
-                label: const Text(
-                  '+ Nuevo paciente',
-                  style: TextStyle(fontSize: 18, fontWeight: FontWeight.w600),
-                ),
-                style: ElevatedButton.styleFrom(
-                  minimumSize: const Size.fromHeight(60),
-                  padding: const EdgeInsets.symmetric(vertical: 16, horizontal: 16),
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(14),
+          onRefresh: () async {
+            if (!NetworkService.instance.isOnline) return;
+            await _load();
+          },
+          child: ListView(
+            padding: const EdgeInsets.all(16),
+            children: [
+              StreamBuilder<bool>(
+                stream: NetworkService.instance.connectivityStream,
+                initialData: NetworkService.instance.isOnline,
+                builder: (context, snapshot) {
+                  final online = snapshot.data ?? true;
+                  return _StatusBanner(isOnline: online);
+                },
+              ),
+              const SizedBox(height: 16),
+              SizedBox(
+                width: double.infinity,
+                child: ElevatedButton.icon(
+                  icon: const Icon(Icons.add, size: 28),
+                  label: const Text(
+                    'REGISTRAR PACIENTE',
+                    style: TextStyle(
+                      fontSize: 20,
+                      fontWeight: FontWeight.w700,
+                    ),
                   ),
-                ),
-                onPressed: () async {
-                  final result = await pushSharedAxis(
-                    context,
-                    const RegistroPacienteWizardScreen(),
-                  );
-                  if (!context.mounted) return;
-                  if (result == 'registrar_otro') {
-                    await pushSharedAxis(
+                  style: ElevatedButton.styleFrom(
+                    minimumSize: const Size.fromHeight(72),
+                    padding: const EdgeInsets.symmetric(
+                      vertical: 18,
+                      horizontal: 16,
+                    ),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(16),
+                    ),
+                  ),
+                  onPressed: () async {
+                    final result = await pushSharedAxis(
                       context,
                       const RegistroPacienteWizardScreen(),
                     );
-                  } else if (result is int) {
-                    await pushSharedAxis(
-                      context,
-                      DetallePersonaScreen(idPersona: result),
-                    );
-                  }
-                },
-              ),
-            ),
-            const SizedBox(height: 12),
-            // Card Operativos
-            InkWell(
-              onTap: () => pushFade(context, GruposListScreen()),
-              borderRadius: BorderRadius.circular(14),
-              child: Card(
-                elevation: 1,
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(14),
+                    if (!context.mounted) return;
+                    if (result == 'registrar_otro') {
+                      await pushSharedAxis(
+                        context,
+                        const RegistroPacienteWizardScreen(),
+                      );
+                    } else if (result is int) {
+                      await pushSharedAxis(
+                        context,
+                        DetallePersonaScreen(idPersona: result),
+                      );
+                    }
+                  },
                 ),
-                child: const Padding(
-                  padding: EdgeInsets.symmetric(vertical: 14, horizontal: 16),
-                  child: Row(
-                    children: [
-                      Icon(Icons.groups, size: 28),
-                      SizedBox(width: 14),
-                      Expanded(
-                        child: Text(
-                          'Operativos',
-                          style: TextStyle(
-                            fontSize: 16,
-                            fontWeight: FontWeight.w600,
-                          ),
+              ),
+              const SizedBox(height: 24),
+              const _SectionTitle('Pendientes'),
+              const SizedBox(height: 8),
+              AnimatedSwitcher(
+                duration: const Duration(milliseconds: 220),
+                child: _loading
+                    ? const Padding(
+                        key: ValueKey('pend_loading'),
+                        padding: EdgeInsets.symmetric(vertical: 12),
+                        child: AppLoading(compact: true),
+                      )
+                    : _PendientesCard(
+                        key: const ValueKey('pend_card'),
+                        sinControl: _stats?['sinControl'] ?? 0,
+                        examenesPendientes: _stats?['examenesPendientes'] ?? 0,
+                        examenesAtrasados: _stats?['examenesAtrasados'] ?? 0,
+                        onSinControl: () =>
+                            pushFade(context, const InasistentesListScreen()),
+                        onExamenesPendientes: () => pushFade(
+                          context,
+                          const ExamenesListScreen(initialFilter: 'pending'),
+                        ),
+                        onExamenesAtrasados: () => pushFade(
+                          context,
+                          const ExamenesListScreen(initialFilter: 'overdue'),
                         ),
                       ),
-                      Icon(Icons.chevron_right),
-                    ],
-                  ),
-                ),
               ),
-            ),
-            const SizedBox(height: 24),
-
-            // 2) Resumen (KPIs) — clickeables
-            const Text(
-              'Resumen',
-              style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
-            ),
-            const SizedBox(height: 8),
-            AnimatedSwitcher(
-              duration: const Duration(milliseconds: 220),
-              child: _loading
-                  ? const Padding(
-                      key: ValueKey('loading'),
-                      padding: EdgeInsets.all(20),
-                      child: Center(child: CircularProgressIndicator()),
-                    )
-                  : _ResumenGrid(
-                      key: const ValueKey('stats'),
-                      stats: _stats ?? {},
-                      onOpenVerToday: () => pushFade(
-                        context,
-                        const VerScreen(initialFilter: 'today'),
-                      ),
-                      onOpenVerLast7: () => pushFade(
-                        context,
-                        const VerScreen(initialFilter: 'last7'),
-                      ),
-                      onOpenVerAll: () => pushFade(
-                        context,
-                        const VerScreen(initialFilter: 'all'),
-                      ),
-                      onPushGrupos: () => pushFade(context, GruposListScreen()),
-                    ),
-            ),
-            const SizedBox(height: 20),
-
-            // 3) Pendientes
-            const Text(
-              'Pendientes',
-              style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
-            ),
-            const SizedBox(height: 8),
-            _PendientesCard(
-              sinControl: _stats?['sinControl'] ?? 0,
-              examenesPendientes: _stats?['examenesPendientes'] ?? 0,
-              examenesAtrasados: _stats?['examenesAtrasados'] ?? 0,
-              onSinControl: () => pushFade(context, const InasistentesListScreen()),
-              onExamenesPendientes: () => pushFade(
-                context,
-                const ExamenesListScreen(initialFilter: 'pending'),
+              const SizedBox(height: 24),
+              const _SectionTitle('Accesos rápidos'),
+              const SizedBox(height: 8),
+              _QuickActionsSection(
+                onBuscarPaciente: () => widget.onGoToTab(2),
+                onGrupos: () => pushFade(context, GruposListScreen()),
               ),
-              onExamenesAtrasados: () => pushFade(
-                context,
-                const ExamenesListScreen(initialFilter: 'overdue'),
-              ),
-            ),
-            const SizedBox(height: 16),
-
-            // 4) Consejo / tutorial rápido
-            const Padding(
-              padding: EdgeInsets.symmetric(horizontal: 8),
-              child: Text(
-                '💡 Toca "Pacientes" en la barra inferior para buscar y filtrar por gestantes, tratamiento o inasistentes.',
-                style: TextStyle(color: Colors.black54, fontSize: 14),
-                textAlign: TextAlign.center,
-              ),
-            ),
-          ],
+            ],
+          ),
         ),
       ),
-    ),
-  );
+    );
   }
 }
 
-class _ResumenGrid extends StatelessWidget {
-  final Map<String, int> stats;
-  final VoidCallback onOpenVerToday;
-  final VoidCallback onOpenVerLast7;
-  final VoidCallback onOpenVerAll;
-  final VoidCallback onPushGrupos;
+class _SectionTitle extends StatelessWidget {
+  final String text;
 
-  const _ResumenGrid({
-    super.key,
-    required this.stats,
-    required this.onOpenVerToday,
-    required this.onOpenVerLast7,
-    required this.onOpenVerAll,
-    required this.onPushGrupos,
+  const _SectionTitle(this.text);
+
+  @override
+  Widget build(BuildContext context) {
+    return Text(
+      text,
+      style: const TextStyle(
+        fontSize: 17,
+        fontWeight: FontWeight.w700,
+        letterSpacing: 0.2,
+      ),
+    );
+  }
+}
+
+class _StatusBanner extends StatelessWidget {
+  final bool isOnline;
+
+  const _StatusBanner({required this.isOnline});
+
+  @override
+  Widget build(BuildContext context) {
+    final bgColor =
+        isOnline ? Colors.green.shade50 : Colors.red.shade50;
+    final iconColor =
+        isOnline ? Colors.green.shade700 : Colors.red.shade700;
+    final borderColor =
+        isOnline ? Colors.green.shade100 : Colors.red.shade100;
+    final title = isOnline ? 'Conectado' : 'Sin conexión';
+
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: bgColor,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: borderColor),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.04),
+            blurRadius: 8,
+            offset: const Offset(0, 2),
+          ),
+        ],
+      ),
+      child: Row(
+        children: [
+          Icon(
+            isOnline ? Icons.check_circle : Icons.cloud_off,
+            color: iconColor,
+            size: 22,
+          ),
+          const SizedBox(width: 10),
+          Text(
+            title,
+            style: const TextStyle(
+              fontSize: 16,
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _QuickActionsSection extends StatelessWidget {
+  final VoidCallback onBuscarPaciente;
+  final VoidCallback onGrupos;
+
+  const _QuickActionsSection({
+    required this.onBuscarPaciente,
+    required this.onGrupos,
   });
 
   @override
   Widget build(BuildContext context) {
-    return GridView.count(
-      crossAxisCount: 2,
-      shrinkWrap: true,
-      physics: const NeverScrollableScrollPhysics(),
-      crossAxisSpacing: 12,
-      mainAxisSpacing: 12,
-      childAspectRatio: 1.35,
+    return Column(
       children: [
-        _KpiCard(
-          label: 'Personas hoy',
-          value: stats['hoy'] ?? 0,
-          cta: 'Ver hoy',
-          onTap: onOpenVerToday,
+        _QuickActionTile(
+          icon: Icons.search,
+          title: 'Buscar paciente',
+          onTap: onBuscarPaciente,
         ),
-        _KpiCard(
-          label: 'Últimos 7 días',
-          value: stats['semana'] ?? 0,
-          cta: 'Ver registros',
-          onTap: onOpenVerLast7,
-        ),
-        _KpiCard(
-          label: 'Operativos activos',
-          value: stats['operativos'] ?? 0,
-          cta: 'Ver operativo',
-          onTap: onPushGrupos,
-        ),
-        _KpiCard(
-          label: 'Total personas',
-          value: stats['total'] ?? 0,
-          cta: 'Ver todos',
-          onTap: onOpenVerAll,
+        const SizedBox(height: 12),
+        _QuickActionTile(
+          icon: Icons.groups_2_outlined,
+          title: 'Grupos',
+          onTap: onGrupos,
         ),
       ],
     );
   }
 }
 
-class _KpiCard extends StatelessWidget {
-  final String label;
-  final int value;
-  final String cta;
+class _QuickActionTile extends StatelessWidget {
+  final IconData icon;
+  final String title;
   final VoidCallback onTap;
 
-  const _KpiCard({
-    required this.label,
-    required this.value,
-    required this.cta,
+  const _QuickActionTile({
+    required this.icon,
+    required this.title,
     required this.onTap,
   });
 
   @override
   Widget build(BuildContext context) {
-    return InkWell(
-      onTap: onTap,
-      borderRadius: BorderRadius.circular(14),
-      child: Card(
-        elevation: 1,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
-        child: Padding(
-          padding: const EdgeInsets.all(12),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            mainAxisSize: MainAxisSize.min,
+    return Material(
+      color: Colors.white,
+      elevation: 1,
+      shadowColor: Colors.black26,
+      borderRadius: BorderRadius.circular(16),
+      child: InkWell(
+        borderRadius: BorderRadius.circular(16),
+        onTap: onTap,
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 18),
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(16),
+            border: Border.all(color: Colors.black12),
+          ),
+          child: Row(
             children: [
-              Text(
-                label,
-                style: const TextStyle(fontSize: 12, color: Colors.black54),
-              ),
-              const SizedBox(height: 6),
-              Text(
-                '$value',
-                style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
-              ),
-              const Spacer(),
-              Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: [
-                  Text(
-                    cta,
-                    style: TextStyle(
-                      fontSize: 12,
-                      color: Theme.of(context).colorScheme.primary,
-                      fontWeight: FontWeight.w500,
-                    ),
+              Icon(icon, size: 26, color: Colors.grey.shade800),
+              const SizedBox(width: 14),
+              Expanded(
+                child: Text(
+                  title,
+                  style: const TextStyle(
+                    fontSize: 17,
+                    fontWeight: FontWeight.w600,
                   ),
-                  const Icon(Icons.chevron_right, size: 18),
-                ],
+                ),
               ),
+              Icon(Icons.chevron_right, color: Colors.grey.shade500),
             ],
           ),
         ),
@@ -362,6 +345,7 @@ class _PendientesCard extends StatelessWidget {
   final VoidCallback onExamenesAtrasados;
 
   const _PendientesCard({
+    super.key,
     required this.sinControl,
     required this.examenesPendientes,
     required this.examenesAtrasados,
@@ -378,7 +362,7 @@ class _PendientesCard extends StatelessWidget {
     return Card(
       elevation: 0,
       color: Colors.grey.shade100,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
       child: hasPendientes
           ? Column(
               mainAxisSize: MainAxisSize.min,
@@ -428,7 +412,8 @@ class _PendientesCard extends StatelessWidget {
               padding: const EdgeInsets.symmetric(vertical: 16, horizontal: 16),
               child: Row(
                 children: [
-                  Icon(Icons.check_circle_outline, color: Colors.green.shade700, size: 22),
+                  Icon(Icons.check_circle_outline,
+                      color: Colors.green.shade700, size: 22),
                   const SizedBox(width: 12),
                   const Text(
                     'No hay pendientes por ahora',

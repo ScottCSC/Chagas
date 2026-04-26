@@ -4,8 +4,15 @@ import 'package:flutter/services.dart';
 import '../models/examen.dart';
 import '../repositories/app_repositories.dart';
 import '../services/network_service.dart';
+import '../utils/app_messages.dart';
+import '../utils/nav.dart';
+import '../utils/rut_utils.dart';
 import '../utils/toast.dart';
+import '../widgets/clinical_list_ui.dart';
+import '../widgets/patient_clinical_list_card.dart';
 import '../widgets/status_badge.dart';
+import '../widgets/states.dart';
+import 'detalle_persona_screen.dart';
 
 /// Filtro por chip: Todos, Pendientes, Atrasados (desde Home: pending → pendientes, overdue → atrasados).
 enum FiltroExamen { todos, pendientes, atrasados }
@@ -56,6 +63,26 @@ int _daysDiff(DateTime date) {
   return (label: 'Programado · $diff días', tone: StatusTone.neutral);
 }
 
+int? _idPersonaFromMap(Map<String, dynamic> persona) {
+  final v = persona['id_persona'];
+  if (v is int) return v;
+  if (v is num) return v.toInt();
+  return null;
+}
+
+PatientVisualStatus _toneToPatientVisual(StatusTone t) {
+  switch (t) {
+    case StatusTone.danger:
+      return PatientVisualStatus.overdue;
+    case StatusTone.warning:
+      return PatientVisualStatus.upcoming;
+    case StatusTone.success:
+      return PatientVisualStatus.upToDate;
+    case StatusTone.neutral:
+      return PatientVisualStatus.upToDate;
+  }
+}
+
 class ExamenesListScreen extends StatefulWidget {
   /// Si se pasa, el chip correspondiente viene activo al abrir (ej. desde Home).
   /// 'pending' → pendientes, 'overdue' → atrasados, null/'all' → todos.
@@ -70,7 +97,7 @@ class ExamenesListScreen extends StatefulWidget {
 class _ExamenesListScreenState extends State<ExamenesListScreen> {
   bool cargando = true;
   List<Examen> registros = [];
-  String filtro = '';
+  final _searchCtrl = TextEditingController();
   late FiltroExamen _chipFiltro;
   final _examenRepo = AppRepositories.examen;
 
@@ -90,6 +117,12 @@ class _ExamenesListScreenState extends State<ExamenesListScreen> {
     cargarRegistros();
   }
 
+  @override
+  void dispose() {
+    _searchCtrl.dispose();
+    super.dispose();
+  }
+
   Future<void> cargarRegistros() async {
     if (!NetworkService.instance.isOnline) {
       setState(() => cargando = false);
@@ -103,7 +136,7 @@ class _ExamenesListScreenState extends State<ExamenesListScreen> {
       });
     } catch (e) {
       setState(() => cargando = false);
-      showErr(context, "Error cargando exámenes: $e");
+      showErr(context, AppMessages.errorCargar);
     }
   }
 
@@ -120,20 +153,6 @@ class _ExamenesListScreenState extends State<ExamenesListScreen> {
       case StatusTone.success:
         return 3;
     }
-  }
-
-  Widget _buildChip(String label, FiltroExamen value) {
-    final selected = _chipFiltro == value;
-    return FilterChip(
-      label: Text(label),
-      selected: selected,
-      onSelected: (_) {
-        HapticFeedback.selectionClick();
-        setState(() => _chipFiltro = value);
-      },
-      selectedColor: Theme.of(context).colorScheme.primaryContainer,
-      checkmarkColor: Theme.of(context).colorScheme.onPrimaryContainer,
-    );
   }
 
   bool _pasaChip(Examen r) {
@@ -155,14 +174,15 @@ class _ExamenesListScreenState extends State<ExamenesListScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final q = _searchCtrl.text.trim().toLowerCase();
     // 1) Filtro por texto (nombre, RUT, tipo, resultado)
     var filtrados = registros.where((r) {
-      if (filtro.isNotEmpty) {
+      if (q.isNotEmpty) {
         final persona = r.persona ?? {};
         final nombre = persona['nombre'] ?? '';
         final rut = persona['rut'] ?? '';
         final texto = '${nombre} ${rut} ${r.tipoExamen ?? ''} ${r.resultado ?? ''}'.toLowerCase();
-        if (!texto.contains(filtro.toLowerCase())) return false;
+        if (!texto.contains(q)) return false;
       }
       return true;
     }).toList();
@@ -185,166 +205,175 @@ class _ExamenesListScreenState extends State<ExamenesListScreen> {
       return fechaA.compareTo(fechaB);
     });
 
+    final atrasadosLista = filtrados.where((r) {
+      final meta = _badgeForExam(r.toJson());
+      return meta.tone == StatusTone.danger;
+    }).length;
+
     return Scaffold(
-      appBar: AppBar(title: const Text("Exámenes de Chagas")),
+      appBar: AppBar(title: const Text('Exámenes de Chagas')),
       body: cargando
-          ? const Center(child: CircularProgressIndicator())
+          ? const AppLoading(compact: true)
           : Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                // Chips: Todos | Pendientes | Atrasados
+                const SizedBox(height: 8),
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 16),
+                  child: Text(
+                    'Mostrando ${filtrados.length} ${filtrados.length == 1 ? 'examen' : 'exámenes'}',
+                    style: TextStyle(fontSize: 15, color: Colors.grey.shade700),
+                  ),
+                ),
+                const SizedBox(height: 12),
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 16),
+                  child: ClinicalSearchField(
+                    controller: _searchCtrl,
+                    hintText: 'Buscar (nombre, RUT, tipo, resultado)',
+                    onChanged: (_) => setState(() {}),
+                  ),
+                ),
+                const SizedBox(height: 12),
                 SingleChildScrollView(
                   scrollDirection: Axis.horizontal,
-                  padding: const EdgeInsets.fromLTRB(12, 12, 12, 8),
+                  padding: const EdgeInsets.symmetric(horizontal: 16),
                   child: Row(
                     children: [
-                      _buildChip('Todos', FiltroExamen.todos),
-                      const SizedBox(width: 8),
-                      _buildChip('Pendientes', FiltroExamen.pendientes),
-                      const SizedBox(width: 8),
-                      _buildChip('Atrasados', FiltroExamen.atrasados),
+                      clinicalFilterChip(
+                        context: context,
+                        label: 'Todos',
+                        selected: _chipFiltro == FiltroExamen.todos,
+                        onTap: () {
+                          HapticFeedback.selectionClick();
+                          setState(() => _chipFiltro = FiltroExamen.todos);
+                        },
+                      ),
+                      clinicalFilterChip(
+                        context: context,
+                        label: 'Pendientes',
+                        selected: _chipFiltro == FiltroExamen.pendientes,
+                        onTap: () {
+                          HapticFeedback.selectionClick();
+                          setState(() => _chipFiltro = FiltroExamen.pendientes);
+                        },
+                      ),
+                      clinicalFilterChip(
+                        context: context,
+                        label: 'Atrasados',
+                        selected: _chipFiltro == FiltroExamen.atrasados,
+                        onTap: () {
+                          HapticFeedback.selectionClick();
+                          setState(() => _chipFiltro = FiltroExamen.atrasados);
+                        },
+                      ),
                     ],
                   ),
                 ),
-                Padding(
-                  padding:
-                      const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                  child: TextField(
-                    decoration: const InputDecoration(
-                      labelText: 'Buscar por nombre / RUT / tipo / resultado',
-                      prefixIcon: Icon(Icons.search),
-                    ),
-                    onChanged: (value) {
-                      setState(() => filtro = value);
-                    },
-                  ),
+                ClinicalListAlertBanner(
+                  text: atrasadosLista <= 0
+                      ? ''
+                      : '$atrasadosLista ${atrasadosLista == 1 ? 'examen atrasado' : 'exámenes atrasados'} en esta vista',
                 ),
                 Expanded(
                   child: filtrados.isEmpty
-                      ? const Center(child: Text("No hay exámenes registrados"))
+                      ? AppEmptyState(
+                          text: registros.isEmpty
+                              ? 'No hay exámenes registrados'
+                              : 'Sin resultados con los filtros actuales',
+                          subtitle: registros.isEmpty
+                              ? 'Los exámenes aparecerán aquí cuando se registren.'
+                              : 'Ajusta la búsqueda o los chips de arriba.',
+                          icon: Icons.science_outlined,
+                          useLottie: true,
+                        )
                       : RefreshIndicator(
                           onRefresh: () async {
                             if (!NetworkService.instance.isOnline) return;
                             await cargarRegistros();
                           },
                           child: ListView.builder(
+                            padding: const EdgeInsets.only(bottom: 16),
                             itemCount: filtrados.length,
                             itemBuilder: (context, index) {
                               final r = filtrados[index];
                               final persona = r.persona ?? {};
-                              final nombre = (persona['nombre'] ?? 'Sin nombre').toString();
-                              final rut = (persona['rut'] ?? '-').toString();
+                              final nombre =
+                                  (persona['nombre'] ?? 'Sin nombre').toString();
+                              final rutRaw =
+                                  (persona['rut'] ?? '').toString().trim();
+                              final rutSmall = rutRaw.isEmpty
+                                  ? null
+                                  : RutUtils.formatearParaUI(rutRaw);
                               final tipo = (r.tipoExamen ?? '—').toString();
-                              final resultado = (r.resultado ?? 'Pendiente').toString();
-                              final fechaStr = (r.fechaExamen ?? '—').toString();
-                              final laboratorio = (r.laboratorio ?? '').toString();
-                              final observacion = (r.observacion ?? '').toString();
+                              final fechaStr =
+                                  (r.fechaExamen ?? '—').toString();
+                              final laboratorio =
+                                  (r.laboratorio ?? '').toString();
+                              final observacion =
+                                  (r.observacion ?? '').toString();
                               final idExamen = r.id;
+                              int? idPersona = r.idPersona;
+                              idPersona ??= _idPersonaFromMap(persona);
 
                               final meta = _badgeForExam(r.toJson());
-                              final res = (r.resultado ?? '').toString().trim().toLowerCase();
+                              final res =
+                                  (r.resultado ?? '').toString().trim().toLowerCase();
                               final pendiente = res == 'pendiente';
-                              final accionPendiente = pendiente && idExamen != null;
+                              final accionPendiente =
+                                  pendiente && idExamen != null;
 
-                              final badge = StatusBadge(
-                                label: meta.label,
-                                tone: meta.tone,
-                                outlined: true,
-                                icon: meta.tone == StatusTone.danger
-                                    ? Icons.error_outline
-                                    : meta.tone == StatusTone.warning
-                                        ? Icons.schedule
-                                        : meta.tone == StatusTone.success
-                                            ? Icons.check_circle_outline
-                                            : Icons.event,
-                              );
+                              final dir =
+                                  (persona['direccion'] ?? '').toString().trim();
+                              final line2 = [
+                                'Tipo: $tipo',
+                                if (laboratorio.isNotEmpty) 'Lab: $laboratorio',
+                                if (observacion.isNotEmpty)
+                                  'Obs: ${observacion.length > 48 ? '${observacion.substring(0, 48)}…' : observacion}',
+                              ].join(' · ');
 
-                              return Card(
-                                margin: const EdgeInsets.symmetric(
-                                    horizontal: 12, vertical: 6),
-                                child: Padding(
-                                  padding: const EdgeInsets.all(12),
-                                  child: Column(
-                                    crossAxisAlignment:
-                                        CrossAxisAlignment.start,
-                                    children: [
-                                      Row(
-                                        children: [
-                                          Expanded(
-                                            child: Text(
-                                              nombre,
-                                              style: const TextStyle(
-                                                fontWeight: FontWeight.bold,
-                                                fontSize: 16,
-                                              ),
-                                            ),
-                                          ),
-                                          const SizedBox(width: 8),
-                                          AnimatedSwitcher(
-                                            duration: const Duration(
-                                                milliseconds: 200),
-                                            transitionBuilder: (child, anim) =>
-                                                FadeTransition(
-                                              opacity: anim,
-                                              child: child,
-                                            ),
-                                            child: badge,
-                                          ),
-                                        ],
-                                      ),
-                                      const SizedBox(height: 4),
-                                      Text(
-                                        'RUT: $rut',
-                                        style: const TextStyle(
-                                            fontSize: 13,
-                                            color: Colors.black54),
-                                      ),
-                                      const SizedBox(height: 4),
-                                      Text(
-                                        'Tipo: $tipo',
-                                        style: const TextStyle(fontSize: 13),
-                                      ),
-                                      Text(
-                                        'Fecha: $fechaStr',
-                                        style: const TextStyle(fontSize: 13),
-                                      ),
-                                      if (laboratorio.isNotEmpty)
-                                        Text(
-                                          'Lab: $laboratorio',
-                                          style: const TextStyle(
-                                              fontSize: 13,
-                                              color: Colors.black54),
-                                        ),
-                                      if (observacion.isNotEmpty)
-                                        Text(
-                                          'Obs: $observacion',
-                                          style: const TextStyle(
-                                              fontSize: 13,
-                                              color: Colors.black54),
-                                        ),
-                                      if (accionPendiente) ...[
-                                        const SizedBox(height: 8),
-                                        Align(
-                                          alignment: Alignment.centerRight,
-                                          child: OutlinedButton(
-                                            onPressed: () async {
-                                              HapticFeedback.selectionClick();
-                                              await _marcarExamenRealizado(
-                                                context,
-                                                idExamen!,
-                                                () async {
-                                                  await cargarRegistros();
-                                                  if (mounted) setState(() {});
-                                                },
-                                              );
-                                            },
-                                            child: const Text(
-                                                'Marcar como realizado'),
-                                          ),
-                                        ),
-                                      ],
-                                    ],
-                                  ),
+                              return PatientListCard(
+                                data: PatientCardData(
+                                  name: nombre,
+                                  rut: rutSmall,
+                                  location: dir.isEmpty ? null : dir,
+                                  controlText: 'Fecha: $fechaStr',
+                                  examText: line2,
+                                  eventRowIcon: Icons.event_outlined,
+                                  detailRowIcon: Icons.science_outlined,
+                                  status: _toneToPatientVisual(meta.tone),
+                                  statusLabelOverride: meta.label,
                                 ),
+                                onTap: idPersona == null
+                                    ? null
+                                    : () {
+                                        HapticFeedback.selectionClick();
+                                        pushFade(
+                                          context,
+                                          DetallePersonaScreen(
+                                              idPersona: idPersona!),
+                                        );
+                                      },
+                                footer: accionPendiente
+                                    ? Align(
+                                        alignment: Alignment.centerRight,
+                                        child: OutlinedButton(
+                                          onPressed: () async {
+                                            HapticFeedback.selectionClick();
+                                            await _marcarExamenRealizado(
+                                              context,
+                                              idExamen,
+                                              () async {
+                                                await cargarRegistros();
+                                                if (mounted) setState(() {});
+                                              },
+                                            );
+                                          },
+                                          child: const Text(
+                                              'Marcar como realizado'),
+                                        ),
+                                      )
+                                    : null,
                               );
                             },
                           ),
@@ -441,12 +470,12 @@ Future<void> _marcarExamenRealizado(
     });
 
     if (context.mounted) {
-      showOk(context, 'Examen actualizado');
+      showOk(context, AppMessages.examenActualizado);
     }
     await onRefresh();
   } catch (e) {
     if (context.mounted) {
-      showErr(context, 'Error al actualizar examen: $e');
+      showErr(context, AppMessages.errorExamenActualizar);
     }
   }
 }

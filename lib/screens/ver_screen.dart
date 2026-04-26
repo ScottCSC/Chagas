@@ -4,13 +4,16 @@ import 'package:url_launcher/url_launcher.dart';
 
 import '../models/paciente_resume.dart';
 import '../repositories/app_repositories.dart';
+import '../utils/seguimiento_rules.dart';
 import '../services/network_service.dart';
 import '../services/pacientes_resume_service.dart';
+import '../utils/app_messages.dart';
 import '../utils/debouncer.dart';
 import '../utils/nav.dart';
 import '../utils/rut_utils.dart';
-import '../utils/seguimiento_rules.dart';
 import '../utils/toast.dart';
+import '../widgets/clinical_list_ui.dart';
+import '../widgets/patient_clinical_list_card.dart';
 import '../widgets/states.dart';
 import 'detalle_persona_screen.dart';
 import 'editar_persona_screen.dart';
@@ -151,7 +154,7 @@ class _VerScreenState extends State<VerScreen> {
       });
       showErrWithAction(
         context,
-        'Error cargando pacientes: $e',
+        AppMessages.errorCargar,
         actionLabel: 'Reintentar',
         onAction: _load,
       );
@@ -198,7 +201,7 @@ class _VerScreenState extends State<VerScreen> {
       case 'today':
         return 'Hoy';
       case 'last7':
-        return 'Últimos 7 días';
+        return '7 días';
       default:
         return 'Todos';
     }
@@ -217,10 +220,60 @@ class _VerScreenState extends State<VerScreen> {
     return '${d.day.toString().padLeft(2, '0')}/${d.month.toString().padLeft(2, '0')}/${d.year}';
   }
 
+  int get _atrasadosCount =>
+      _resumes.where((r) => r.overallStatus == Semaforo.rojo).length;
+
+  PatientVisualStatus _visualStatus(Semaforo s) {
+    switch (s) {
+      case Semaforo.verde:
+        return PatientVisualStatus.upToDate;
+      case Semaforo.amarillo:
+        return PatientVisualStatus.upcoming;
+      case Semaforo.rojo:
+        return PatientVisualStatus.overdue;
+    }
+  }
+
+  String _controlLineFor(PacienteResume r) {
+    switch (r.lastControlStatus) {
+      case EstadoControl.sinRegistro:
+        return 'Últ. control: —';
+      case EstadoControl.alDia:
+        final d = r.lastControlDate;
+        return d == null ? 'Últ. control: —' : 'Últ. control: ${_formatDate(d)}';
+      case EstadoControl.proximo:
+        final d = r.lastControlDate;
+        return d == null ? 'Próximo control: —' : 'Próximo control: ${_formatDate(d)}';
+      case EstadoControl.vencido:
+        return 'Control atrasado';
+    }
+  }
+
+  String _examLineFor(PacienteResume r) {
+    if (r.lastExamStatus == EstadoExamen.sinRegistro) return 'Sin exámenes';
+    return 'Últ. examen: ${_formatDate(r.lastExamDate)} · ${r.lastExamLabel}';
+  }
+
+  PatientCardData _cardDataFor(PacienteResume r, Set<String> modulos) {
+    final rutRaw = (r.rut ?? '').trim();
+    final rutFormateado =
+        rutRaw.isEmpty ? '' : RutUtils.formatearParaUI(r.rut!);
+    return PatientCardData(
+      name: r.nombre,
+      rut: rutFormateado.isEmpty ? null : rutFormateado,
+      location: (r.comuna ?? '').trim().isEmpty ? null : r.comuna!.trim(),
+      controlText: _controlLineFor(r),
+      examText: _examLineFor(r),
+      status: _visualStatus(r.overallStatus),
+      modulos: modulos,
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final personasFiltradas = _resumes.length;
-    
+    final primary = Theme.of(context).colorScheme.primary;
+
     return Scaffold(
       appBar: AppBar(
         title: const Text('Ver pacientes', style: TextStyle(fontSize: 20)),
@@ -242,56 +295,82 @@ class _VerScreenState extends State<VerScreen> {
         ],
       ),
       body: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // Header con contador y botón limpiar
+          const SizedBox(height: 8),
           Padding(
-            padding: const EdgeInsets.fromLTRB(16, 12, 16, 8),
-            child: Align(
-              alignment: Alignment.centerLeft,
-              child: Wrap(
-                spacing: 8,
-                runSpacing: 4,
-                crossAxisAlignment: WrapCrossAlignment.center,
-                children: [
-                  Text(
+            padding: const EdgeInsets.symmetric(horizontal: 16),
+            child: Row(
+              children: [
+                Expanded(
+                  child: Text(
                     'Mostrando $personasFiltradas ${personasFiltradas == 1 ? 'paciente' : 'pacientes'}',
                     style: TextStyle(
-                      fontSize: 14,
-                      color: Theme.of(context).colorScheme.onSurfaceVariant,
+                      fontSize: 15,
+                      color: Colors.grey.shade700,
                     ),
                   ),
-                  if (_dateFilter != 'all')
-                    Chip(
+                ),
+                if (_dateFilter != 'all')
+                  Padding(
+                    padding: const EdgeInsets.only(right: 8),
+                    child: Chip(
                       avatar: const Icon(Icons.calendar_today, size: 14),
                       label: Text(_dateFilterLabel()),
                       visualDensity: VisualDensity.compact,
+                      materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
                     ),
-                  if (_tieneFiltros)
-                    TextButton.icon(
-                      icon: const Icon(Icons.clear, size: 18),
-                      label: const Text('Limpiar'),
-                      onPressed: _limpiar,
-                    ),
-                ],
-              ),
+                  ),
+                if (_tieneFiltros)
+                  TextButton.icon(
+                    icon: const Icon(Icons.clear, size: 18),
+                    label: const Text('Limpiar'),
+                    onPressed: _limpiar,
+                  ),
+              ],
             ),
           ),
-          // Buscador
+          const SizedBox(height: 12),
           Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 12),
+            padding: const EdgeInsets.symmetric(horizontal: 16),
             child: TextField(
               controller: _qCtrl,
-              decoration: const InputDecoration(
-                prefixIcon: Icon(Icons.search),
-                labelText: 'Buscar por nombre o RUT',
+              decoration: InputDecoration(
+                hintText: 'Buscar paciente (nombre o RUT)',
+                prefixIcon: const Icon(Icons.search),
+                suffixIcon: _qCtrl.text.isEmpty
+                    ? null
+                    : IconButton(
+                        icon: const Icon(Icons.close),
+                        onPressed: () {
+                          _qCtrl.clear();
+                          setState(() => _query = '');
+                          _load();
+                        },
+                      ),
+                filled: true,
+                fillColor: Colors.white,
+                contentPadding:
+                    const EdgeInsets.symmetric(vertical: 16, horizontal: 12),
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(16),
+                ),
+                enabledBorder: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(16),
+                  borderSide: BorderSide(color: Colors.grey.shade300),
+                ),
+                focusedBorder: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(16),
+                  borderSide: BorderSide(color: primary, width: 1.5),
+                ),
               ),
+              onChanged: (_) => setState(() {}),
             ),
           ),
-          const SizedBox(height: 8),
-          // Chips con contadores
+          const SizedBox(height: 12),
           SingleChildScrollView(
             scrollDirection: Axis.horizontal,
-            padding: const EdgeInsets.symmetric(horizontal: 12),
+            padding: const EdgeInsets.symmetric(horizontal: 16),
             child: Row(
               children: [
                 _chip('Todos', FiltroVer.todos),
@@ -303,91 +382,219 @@ class _VerScreenState extends State<VerScreen> {
               ],
             ),
           ),
-          const SizedBox(height: 8),
+          ClinicalListAlertBanner(
+            text: _loading || _atrasadosCount <= 0
+                ? ''
+                : '$_atrasadosCount ${_atrasadosCount == 1 ? 'paciente con' : 'pacientes con'} control atrasado',
+          ),
           Expanded(
             child: AnimatedSwitcher(
               duration: const Duration(milliseconds: 250),
               child: _loading
                   ? const AppLoading(key: ValueKey('loading'))
                   : _resumes.isEmpty
-                      ? const AppEmptyState(key: ValueKey('empty'), text: 'Sin resultados')
+                      ? const AppEmptyState(
+                          key: ValueKey('empty'),
+                          text: 'Sin resultados',
+                          subtitle:
+                              'Prueba otra búsqueda, un filtro distinto o limpia los filtros.',
+                          icon: Icons.people_outline,
+                          useLottie: true,
+                        )
                       : RefreshIndicator(
                           key: const ValueKey('list'),
                           onRefresh: () async {
                             if (!NetworkService.instance.isOnline) return;
                             HapticFeedback.lightImpact();
                             await _load();
-                            if (mounted) showOk(context, 'Actualizado');
+                            if (!context.mounted) return;
+                            showOk(context, AppMessages.listaActualizada);
                           },
-                          child: ListView.separated(
+                          child: ListView.builder(
                             key: const PageStorageKey<String>('ver_screen_list'),
                             controller: _scrollController,
+                            padding: const EdgeInsets.only(top: 4, bottom: 16),
                             itemCount: _resumes.length,
-                            separatorBuilder: (_, __) => const Divider(height: 1),
                             itemBuilder: (_, i) {
                               final r = _resumes[i];
-                              final rutFormateado = (r.rut ?? '').trim().isEmpty
-                                  ? ''
-                                  : RutUtils.formatearParaUI(r.rut!);
-                              final comuna = r.comuna ?? '';
-                              final subtitulo = rutFormateado.isNotEmpty
-                                  ? (comuna.isNotEmpty ? '$rutFormateado • $comuna' : rutFormateado)
-                                  : (comuna.isNotEmpty ? comuna : 'Sin RUT');
-                              final lastExamLine = 'Últ. examen: ${_formatDate(r.lastExamDate)} · ${r.lastExamLabel}';
-                              final lastControlLine = 'Últ. control: ${_formatDate(r.lastControlDate)}';
-                              final modulos = _modulosPorPersona[r.idPersona] ?? <String>{};
-                              
-                              final tile = _PersonaTile(
-                                nombre: r.nombre,
-                                subtitulo: subtitulo,
-                                lastExamLine: lastExamLine,
-                                lastControlLine: lastControlLine,
-                                overallStatus: r.overallStatus,
-                                overallLabel: r.overallLabel,
-                                modulos: modulos,
-                                telefono: r.telefono ?? '',
-                                idPersona: r.idPersona,
-                                onTap: () async {
-                                        HapticFeedback.selectionClick();
-                                        final result = await pushSharedAxis<bool>(
-                                          context,
-                                          DetallePersonaScreen(idPersona: r.idPersona),
-                                        );
-                                        if (result == true && mounted) _load();
-                                      },
-                                onEditar: () async {
-                                        HapticFeedback.selectionClick();
-                                        final result = await pushSharedAxis<bool>(
-                                          context,
-                                          EditarPersonaScreen(idPersona: r.idPersona),
-                                        );
-                                        if (result == true && mounted) _load();
-                                      },
-                                onLlamar: (r.telefono ?? '').isNotEmpty
-                                    ? () async {
-                                        HapticFeedback.selectionClick();
-                                        final uri = Uri.parse('tel:${r.telefono}');
-                                        if (await canLaunchUrl(uri)) {
-                                          await launchUrl(uri);
-                                        } else {
-                                          showErr(context, 'No se puede realizar la llamada');
-                                        }
-                                      }
-                                    : null,
+                              final modulos =
+                                  _modulosPorPersona[r.idPersona] ?? <String>{};
+                              final data = _cardDataFor(r, modulos);
+
+                              void onTap() async {
+                                HapticFeedback.selectionClick();
+                                final result = await pushSharedAxis<bool>(
+                                  context,
+                                  DetallePersonaScreen(idPersona: r.idPersona),
+                                );
+                                if (result == true && mounted) _load();
+                              }
+
+                              Future<void> onEditar() async {
+                                HapticFeedback.selectionClick();
+                                final result = await pushSharedAxis<bool>(
+                                  context,
+                                  EditarPersonaScreen(idPersona: r.idPersona),
+                                );
+                                if (result == true && mounted) _load();
+                              }
+
+                              Future<void> onLlamar() async {
+                                HapticFeedback.selectionClick();
+                                final uri = Uri.parse('tel:${r.telefono}');
+                                if (await canLaunchUrl(uri)) {
+                                  await launchUrl(uri);
+                                } else {
+                                  if (!context.mounted) return;
+                                  showErr(
+                                      context, 'No se pudo iniciar la llamada');
+                                }
+                              }
+
+                              final card = PatientListCard(
+                                data: data,
+                                onTap: onTap,
                               );
-                              
-                              if (_animatedOnce) return tile;
+
+                              final wrapped = (r.telefono ?? '').isNotEmpty
+                                  ? Dismissible(
+                                      key: Key('persona_${r.idPersona}'),
+                                      direction: DismissDirection.horizontal,
+                                      background: Container(
+                                        margin: const EdgeInsets.symmetric(
+                                            horizontal: 16, vertical: 8),
+                                        decoration: BoxDecoration(
+                                          color: Colors.green.shade600,
+                                          borderRadius:
+                                              BorderRadius.circular(18),
+                                        ),
+                                        alignment: Alignment.centerLeft,
+                                        padding:
+                                            const EdgeInsets.only(left: 20),
+                                        child: const Row(
+                                          children: [
+                                            Icon(Icons.phone,
+                                                color: Colors.white),
+                                            SizedBox(width: 8),
+                                            Text(
+                                              'Llamar',
+                                              style: TextStyle(
+                                                color: Colors.white,
+                                                fontWeight: FontWeight.bold,
+                                              ),
+                                            ),
+                                          ],
+                                        ),
+                                      ),
+                                      secondaryBackground: Container(
+                                        margin: const EdgeInsets.symmetric(
+                                            horizontal: 16, vertical: 8),
+                                        decoration: BoxDecoration(
+                                          color: Colors.blue.shade600,
+                                          borderRadius:
+                                              BorderRadius.circular(18),
+                                        ),
+                                        alignment: Alignment.centerRight,
+                                        padding:
+                                            const EdgeInsets.only(right: 20),
+                                        child: const Row(
+                                          mainAxisAlignment:
+                                              MainAxisAlignment.end,
+                                          children: [
+                                            Text(
+                                              'Editar contacto',
+                                              style: TextStyle(
+                                                color: Colors.white,
+                                                fontWeight: FontWeight.bold,
+                                              ),
+                                            ),
+                                            SizedBox(width: 8),
+                                            Icon(Icons.edit,
+                                                color: Colors.white),
+                                          ],
+                                        ),
+                                      ),
+                                      confirmDismiss: (direction) async {
+                                        if (direction ==
+                                            DismissDirection.startToEnd) {
+                                          await onLlamar();
+                                          return false;
+                                        }
+                                        if (direction ==
+                                            DismissDirection.endToStart) {
+                                          await onEditar();
+                                          return false;
+                                        }
+                                        return false;
+                                      },
+                                      child: card,
+                                    )
+                                  : Dismissible(
+                                      key: Key('persona_${r.idPersona}'),
+                                      direction: DismissDirection.endToStart,
+                                      // Obligatorio si hay secondaryBackground (API de Dismissible).
+                                      background: Container(
+                                        margin: const EdgeInsets.symmetric(
+                                            horizontal: 16, vertical: 8),
+                                        decoration: BoxDecoration(
+                                          color: Colors.transparent,
+                                          borderRadius:
+                                              BorderRadius.circular(18),
+                                        ),
+                                      ),
+                                      secondaryBackground: Container(
+                                        margin: const EdgeInsets.symmetric(
+                                            horizontal: 16, vertical: 8),
+                                        decoration: BoxDecoration(
+                                          color: Colors.blue.shade600,
+                                          borderRadius:
+                                              BorderRadius.circular(18),
+                                        ),
+                                        alignment: Alignment.centerRight,
+                                        padding:
+                                            const EdgeInsets.only(right: 20),
+                                        child: const Row(
+                                          mainAxisAlignment:
+                                              MainAxisAlignment.end,
+                                          children: [
+                                            Text(
+                                              'Editar contacto',
+                                              style: TextStyle(
+                                                color: Colors.white,
+                                                fontWeight: FontWeight.bold,
+                                              ),
+                                            ),
+                                            SizedBox(width: 8),
+                                            Icon(Icons.edit,
+                                                color: Colors.white),
+                                          ],
+                                        ),
+                                      ),
+                                      confirmDismiss: (direction) async {
+                                        if (direction ==
+                                            DismissDirection.endToStart) {
+                                          await onEditar();
+                                          return false;
+                                        }
+                                        return false;
+                                      },
+                                      child: card,
+                                    );
+
+                              if (_animatedOnce) return wrapped;
                               return TweenAnimationBuilder<double>(
                                 tween: Tween(begin: 0, end: 1),
-                                duration: Duration(milliseconds: 180 + (i.clamp(0, 8) * 20)),
+                                duration: Duration(
+                                    milliseconds:
+                                        180 + (i.clamp(0, 8) * 20)),
                                 builder: (_, v, child) => Opacity(
                                   opacity: v,
                                   child: Transform.translate(
-                                    offset: Offset(0, (1 - v) * 8),
+                                    offset: Offset(0, (1 - v) * 10),
                                     child: child,
                                   ),
                                 ),
-                                child: tile,
+                                child: wrapped,
                               );
                             },
                           ),
@@ -403,221 +610,17 @@ class _VerScreenState extends State<VerScreen> {
     final selected = _filtro == f;
     final count = _contadoresFiltros[f] ?? 0;
     final label = count > 0 ? '$text ($count)' : text;
-    
-    return Padding(
-      padding: const EdgeInsets.only(right: 8),
-      child: ChoiceChip(
-        selected: selected,
-        label: Text(label),
-        onSelected: (_) {
-          HapticFeedback.selectionClick();
-          setState(() {
-            _filtro = f;
-            _load();
-          });
-        },
-        selectedColor: Theme.of(context).colorScheme.primaryContainer,
-        labelStyle: TextStyle(
-          fontWeight: selected ? FontWeight.w600 : FontWeight.normal,
-          color: selected 
-              ? Theme.of(context).colorScheme.onPrimaryContainer 
-              : null,
-        ),
-      ),
-    );
-  }
-}
-
-class _PersonaTile extends StatelessWidget {
-  final String nombre;
-  final String subtitulo;
-  final String? lastExamLine;
-  final String? lastControlLine;
-  final Semaforo overallStatus;
-  final String? overallLabel;
-  final Set<String> modulos;
-  final String telefono;
-  final int idPersona;
-  final VoidCallback? onTap;
-  final VoidCallback? onEditar;
-  final VoidCallback? onLlamar;
-
-  const _PersonaTile({
-    required this.nombre,
-    required this.subtitulo,
-    this.lastExamLine,
-    this.lastControlLine,
-    required this.overallStatus,
-    this.overallLabel,
-    required this.modulos,
-    required this.telefono,
-    required this.idPersona,
-    this.onTap,
-    this.onEditar,
-    this.onLlamar,
-  });
-
-  static Color _colorSemaforo(Semaforo s) {
-    switch (s) {
-      case Semaforo.rojo:
-        return Colors.red;
-      case Semaforo.amarillo:
-        return Colors.amber;
-      case Semaforo.verde:
-        return Colors.green;
-    }
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final tile = ListTile(
-      title: Text(
-        nombre,
-        style: const TextStyle(fontWeight: FontWeight.bold),
-      ),
-      subtitle: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Text(subtitulo),
-          const SizedBox(height: 2),
-          Text(
-            lastExamLine ?? 'Últ. examen: —',
-            style: TextStyle(fontSize: 12, color: Theme.of(context).colorScheme.onSurfaceVariant),
-          ),
-          Text(
-            lastControlLine ?? 'Últ. control: —',
-            style: TextStyle(fontSize: 12, color: Theme.of(context).colorScheme.onSurfaceVariant),
-          ),
-          if (modulos.isNotEmpty) ...[
-            const SizedBox(height: 4),
-            Wrap(
-              spacing: 4,
-              runSpacing: 4,
-              children: modulos.map((m) {
-                final labels = {
-                  'BC': 'BC',
-                  'G': 'G',
-                  'A': 'A',
-                  'T': 'T',
-                  'I': 'I',
-                  'E': 'E',
-                };
-                return Chip(
-                  label: Text(
-                    labels[m] ?? m,
-                    style: const TextStyle(fontSize: 11),
-                  ),
-                  padding: EdgeInsets.zero,
-                  materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                  visualDensity: VisualDensity.compact,
-                );
-              }).toList(),
-            ),
-          ],
-        ],
-      ),
-      trailing: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-            decoration: BoxDecoration(
-              color: _colorSemaforo(overallStatus).withOpacity(0.2),
-              borderRadius: BorderRadius.circular(12),
-              border: Border.all(color: _colorSemaforo(overallStatus), width: 1),
-            ),
-            child: Text(
-              overallLabel ?? 'Al día',
-              style: TextStyle(
-                fontSize: 11,
-                fontWeight: FontWeight.w600,
-                color: _colorSemaforo(overallStatus),
-              ),
-            ),
-          ),
-          if (modulos.isNotEmpty)
-            Padding(
-              padding: const EdgeInsets.only(left: 6, right: 8),
-              child: Wrap(
-                spacing: 2,
-                children: modulos.map((m) {
-                  final colors = {
-                    'BC': Colors.blue,
-                    'G': Colors.pink,
-                    'A': Colors.orange,
-                    'T': Colors.green,
-                    'I': Colors.red,
-                    'E': Colors.purple,
-                  };
-                  return Container(
-                    width: 6,
-                    height: 6,
-                    decoration: BoxDecoration(
-                      color: colors[m] ?? Colors.grey,
-                      shape: BoxShape.circle,
-                    ),
-                  );
-                }).toList(),
-              ),
-            ),
-          const Icon(Icons.chevron_right),
-        ],
-      ),
-      onTap: onTap,
-    );
-
-    if (onEditar == null && onLlamar == null) {
-      return tile;
-    }
-
-    return Dismissible(
-      key: Key('persona_$idPersona'),
-      direction: onLlamar != null 
-          ? DismissDirection.horizontal 
-          : DismissDirection.endToStart,
-      background: Container(
-        color: Colors.green,
-        alignment: Alignment.centerLeft,
-        padding: const EdgeInsets.only(left: 20),
-        child: const Row(
-          children: [
-            Icon(Icons.phone, color: Colors.white),
-            SizedBox(width: 8),
-            Text(
-              'Llamar',
-              style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
-            ),
-          ],
-        ),
-      ),
-      secondaryBackground: Container(
-        color: Colors.blue,
-        alignment: Alignment.centerRight,
-        padding: const EdgeInsets.only(right: 20),
-        child: const Row(
-          mainAxisAlignment: MainAxisAlignment.end,
-          children: [
-            Text(
-              'Editar contacto',
-              style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
-            ),
-            SizedBox(width: 8),
-            Icon(Icons.edit, color: Colors.white),
-          ],
-        ),
-      ),
-      confirmDismiss: (direction) async {
-        if (direction == DismissDirection.startToEnd && onLlamar != null) {
-          onLlamar!();
-          return false; // No eliminar el tile, solo ejecutar acción
-        } else if (direction == DismissDirection.endToStart && onEditar != null) {
-          onEditar!();
-          return false; // No eliminar el tile, solo ejecutar acción
-        }
-        return false;
+    return clinicalFilterChip(
+      context: context,
+      label: label,
+      selected: selected,
+      onTap: () {
+        HapticFeedback.selectionClick();
+        setState(() {
+          _filtro = f;
+          _load();
+        });
       },
-      child: tile,
     );
   }
 }

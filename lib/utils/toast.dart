@@ -1,10 +1,17 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
+const Duration _kSnackOk = Duration(seconds: 3);
+const Duration _kSnackErr = Duration(seconds: 4);
+
 void showOk(BuildContext context, String msg) {
   HapticFeedback.lightImpact();
   ScaffoldMessenger.of(context).showSnackBar(
-    SnackBar(content: Text(msg), behavior: SnackBarBehavior.floating),
+    SnackBar(
+      content: Text(msg),
+      behavior: SnackBarBehavior.floating,
+      duration: _kSnackOk,
+    ),
   );
 }
 
@@ -14,12 +21,13 @@ void showErr(BuildContext context, String msg) {
     SnackBar(
       content: Text(msg),
       behavior: SnackBarBehavior.floating,
-      backgroundColor: Colors.red,
+      backgroundColor: Colors.red.shade800,
+      duration: _kSnackErr,
     ),
   );
 }
 
-/// Error con acción (ej. Reintentar).
+/// Error con acción (p. ej. Reintentar).
 void showErrWithAction(
   BuildContext context,
   String msg, {
@@ -31,7 +39,8 @@ void showErrWithAction(
     SnackBar(
       content: Text(msg),
       behavior: SnackBarBehavior.floating,
-      backgroundColor: Colors.red,
+      backgroundColor: Colors.red.shade800,
+      duration: _kSnackErr,
       action: SnackBarAction(
         label: actionLabel,
         textColor: Colors.white,

@@ -2,8 +2,10 @@
 class Persona {
   final int? idPersona;
   final String? nombre;
+  final String? apellido;
   final String? rut;
   final int? edad;
+  final String? fechaNacimiento;
   final String? sexo;
   final String? direccion;
   final String? telefono;
@@ -18,8 +20,10 @@ class Persona {
   const Persona({
     this.idPersona,
     this.nombre,
+    this.apellido,
     this.rut,
     this.edad,
+    this.fechaNacimiento,
     this.sexo,
     this.direccion,
     this.telefono,
@@ -36,8 +40,10 @@ class Persona {
     return Persona(
       idPersona: json['id_persona'] as int?,
       nombre: json['nombre']?.toString(),
+      apellido: json['apellido']?.toString(),
       rut: json['rut']?.toString(),
       edad: json['edad'] as int?,
+      fechaNacimiento: json['fecha_nacimiento']?.toString(),
       sexo: json['sexo']?.toString(),
       direccion: json['direccion']?.toString(),
       telefono: json['telefono']?.toString(),
@@ -61,8 +67,10 @@ class Persona {
     return {
       if (idPersona != null) 'id_persona': idPersona,
       if (nombre != null) 'nombre': nombre,
+      if (apellido != null) 'apellido': apellido,
       if (rut != null) 'rut': rut,
       if (edad != null) 'edad': edad,
+      if (fechaNacimiento != null) 'fecha_nacimiento': fechaNacimiento,
       if (sexo != null) 'sexo': sexo,
       if (direccion != null) 'direccion': direccion,
       if (telefono != null) 'telefono': telefono,
@@ -80,8 +88,10 @@ class Persona {
   Map<String, dynamic> toPayload() {
     return {
       if (nombre != null) 'nombre': nombre,
+      if (apellido != null) 'apellido': apellido,
       if (rut != null) 'rut': rut,
       if (edad != null) 'edad': edad,
+      if (fechaNacimiento != null) 'fecha_nacimiento': fechaNacimiento,
       if (sexo != null) 'sexo': sexo,
       if (direccion != null) 'direccion': direccion,
       if (telefono != null) 'telefono': telefono,

@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
+import '../utils/app_messages.dart';
 import '../utils/toast.dart';
 import '../widgets/form_actions_row.dart';
 import '../widgets/save_button.dart';
@@ -73,7 +74,7 @@ class _CrearAgudoScreenState extends State<CrearAgudoScreen> {
       });
     } catch (e) {
       setState(() => cargando = false);
-      showErr(context, "Error cargando caso agudo: $e");
+      showErr(context, AppMessages.errorCargar);
     }
   }
 
@@ -145,7 +146,7 @@ class _CrearAgudoScreenState extends State<CrearAgudoScreen> {
       Navigator.pop(context, true);
     } catch (e) {
       setState(() => guardando = false);
-      showErr(context, "Error al guardar caso agudo: $e");
+      showErr(context, AppMessages.errorGuardar);
     }
   }
 

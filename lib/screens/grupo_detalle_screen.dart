@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
+import '../utils/app_messages.dart';
 import '../utils/toast.dart';
 import '../widgets/form_actions_row.dart';
 import 'crear_persona_screen.dart';
@@ -57,7 +58,7 @@ class _GrupoDetalleScreenState extends State<GrupoDetalleScreen> {
       });
     } catch (e) {
       setState(() => cargando = false);
-      showErr(context, 'Error cargando miembros: $e');
+      showErr(context, AppMessages.errorCargar);
     }
   }
 
@@ -133,7 +134,7 @@ class _GrupoDetalleScreenState extends State<GrupoDetalleScreen> {
 
       await cargarMiembros();
     } catch (e) {
-      showErr(context, 'Error agregando persona al grupo: $e');
+        showErr(context, AppMessages.errorGrupoAgregar);
     }
   }
 
@@ -204,7 +205,7 @@ class _GrupoDetalleScreenState extends State<GrupoDetalleScreen> {
 
       await cargarMiembros();
     } catch (e) {
-      showErr(context, 'Error al quitar persona del grupo: $e');
+      showErr(context, AppMessages.errorGrupoQuitar);
     }
   }
 

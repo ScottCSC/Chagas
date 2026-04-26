@@ -85,7 +85,13 @@ class _PerfilScreenState extends State<PerfilScreen> {
             Card(
               child: ListTile(
                 title: Text(user?.email ?? 'Sin sesión'),
-                subtitle: Text('Rol: ${_role ?? '?'}'),
+                subtitle: Text(
+                  _role == null
+                      ? 'Rol: —'
+                      : (_role == 'admin'
+                          ? 'Rol: administrador'
+                          : 'Rol: ${_role!}'),
+                ),
               ),
             ),
             const SizedBox(height: 20),

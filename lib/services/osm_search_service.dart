@@ -84,4 +84,27 @@ class OsmSearchService {
         .map((e) => OsmPlace.fromJson(e as Map<String, dynamic>))
         .toList();
   }
+
+  /// Geocodificación inversa (Nominatim). Respetar uso razonable (debounce en UI).
+  static Future<OsmPlace?> reverse(double lat, double lon) async {
+    final uri = Uri.https('nominatim.openstreetmap.org', '/reverse', {
+      'lat': lat.toString(),
+      'lon': lon.toString(),
+      'format': 'json',
+      'addressdetails': '1',
+    });
+
+    final res = await http.get(
+      uri,
+      headers: {
+        'User-Agent': 'chagas_app/1.0 (contact: dev@local)',
+        'Accept': 'application/json',
+      },
+    );
+
+    if (res.statusCode != 200) return null;
+    final j = jsonDecode(res.body);
+    if (j is! Map<String, dynamic>) return null;
+    return OsmPlace.fromJson(j);
+  }
 }

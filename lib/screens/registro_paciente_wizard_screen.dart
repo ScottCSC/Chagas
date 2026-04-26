@@ -2,13 +2,18 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
-import '../utils/nav.dart';
+import '../utils/app_messages.dart';
+import '../utils/persona_sexo_guardado.dart';
+import '../utils/sexo_paciente.dart';
 import '../utils/rut_input_formatter.dart';
 import '../utils/rut_utils.dart';
 import '../utils/toast.dart';
+import '../models/selected_location.dart';
+import '../utils/edad_util.dart';
 import '../widgets/contacto_ubicacion_form.dart';
+import '../widgets/fecha_nacimiento_field.dart';
 import '../widgets/save_button.dart';
-import 'seleccionar_persona_screen.dart';
+import '../widgets/sexo_selector_field.dart';
 
 enum ModuloPaciente {
   gestante,
@@ -54,9 +59,11 @@ class _RegistroPacienteWizardScreenState
 
   // Persona
   final _nombreCtrl = TextEditingController();
+  final _apellidoCtrl = TextEditingController();
   final _rutCtrl = TextEditingController();
-  final _edadCtrl = TextEditingController();
-  final _sexoCtrl = TextEditingController();
+  DateTime? _fechaNacimiento;
+  bool _errorFechaRequerida = false;
+  String? _sexoCodigo;
   final _direccionCtrl = TextEditingController();
   final _telefonoCtrl = TextEditingController();
   final _emailCtrl = TextEditingController();
@@ -64,9 +71,6 @@ class _RegistroPacienteWizardScreenState
   final _provinciaCtrl = TextEditingController();
   double? _latitud;
   double? _longitud;
-
-  int? _idPersonaExistente;
-  String? _nombrePersonaExistente;
 
   final Set<ModuloPaciente> _modsSelected = {};
   final Set<ModuloPaciente> _modsOpen = {};
@@ -142,19 +146,6 @@ class _RegistroPacienteWizardScreenState
     } catch (_) {}
   }
 
-  Future<void> _setPersonaExistente(int id) async {
-    setState(() {
-      _idPersonaExistente = id;
-      _nombrePersonaExistente = 'Persona ID: $id';
-    });
-    try {
-      final r = await _sb.from('persona').select('nombre').eq('id_persona', id).maybeSingle();
-      if (mounted && r != null) {
-        setState(() => _nombrePersonaExistente = r['nombre']?.toString());
-      }
-    } catch (_) {}
-  }
-
   Future<void> _pickDate(
     DateTime? current,
     void Function(DateTime?) set,
@@ -171,9 +162,8 @@ class _RegistroPacienteWizardScreenState
   @override
   void dispose() {
     _nombreCtrl.dispose();
+    _apellidoCtrl.dispose();
     _rutCtrl.dispose();
-    _edadCtrl.dispose();
-    _sexoCtrl.dispose();
     _direccionCtrl.dispose();
     _telefonoCtrl.dispose();
     _emailCtrl.dispose();
@@ -201,14 +191,16 @@ class _RegistroPacienteWizardScreenState
   }
 
   Future<int> _upsertPersona() async {
-    if (_idPersonaExistente != null) return _idPersonaExistente!;
-
     final rutLimpio = RutInputFormatter.clean(_rutCtrl.text.trim());
+    final sexo = SexoPaciente.codigoParaPayload(_sexoCodigo);
+    debugLogSexoEnPayload('wizard insert', sexo);
     final payload = {
       'nombre': _nombreCtrl.text.trim(),
+      'apellido': _apellidoCtrl.text.trim().isEmpty ? null : _apellidoCtrl.text.trim(),
       'rut': rutLimpio.isEmpty ? null : rutLimpio,
-      'edad': int.tryParse(_edadCtrl.text.trim()),
-      'sexo': _sexoCtrl.text.trim().isEmpty ? null : _sexoCtrl.text.trim(),
+      'fecha_nacimiento': EdadUtil.aIsoFecha(_fechaNacimiento),
+      'edad': _fechaNacimiento != null ? EdadUtil.calcularEdad(_fechaNacimiento!) : null,
+      'sexo': sexo,
       'direccion': _direccionCtrl.text.trim().isEmpty ? null : _direccionCtrl.text.trim(),
       'telefono': _telefonoCtrl.text.trim().isEmpty ? null : _telefonoCtrl.text.trim(),
       'email': _emailCtrl.text.trim().isEmpty ? null : _emailCtrl.text.trim(),
@@ -244,10 +236,15 @@ class _RegistroPacienteWizardScreenState
   Future<void> _guardar() async {
     FocusScope.of(context).unfocus();
 
-    if (_idPersonaExistente == null) {
-      final ok = _formKey.currentState?.validate() ?? false;
-      if (!ok) return;
+    if (_fechaNacimiento == null) {
+      setState(() => _errorFechaRequerida = true);
+      showErr(context, 'Seleccione la fecha de nacimiento');
+      return;
     }
+    setState(() => _errorFechaRequerida = false);
+
+    final ok = _formKey.currentState?.validate() ?? false;
+    if (!ok) return;
 
     setState(() => _saving = true);
 
@@ -376,8 +373,16 @@ class _RegistroPacienteWizardScreenState
         ),
       );
     } catch (e) {
+      final sexoTry = SexoPaciente.codigoParaPayload(_sexoCodigo);
+      debugLogErrorPersonaSexo(
+        'wizard',
+        e,
+        sexoIntentado: sexoTry,
+        payloadParcial: {'sexo': sexoTry},
+      );
       if (!mounted) return;
-      showErr(context, 'Error al guardar: $e');
+      final extra = sufijoSnackbarSiFalloEnumSexo(e, sexoIntentado: sexoTry);
+      showErr(context, '${AppMessages.errorGuardar}${extra ?? ''}');
       setState(() => _saving = false);
     }
   }
@@ -424,85 +429,95 @@ class _RegistroPacienteWizardScreenState
               style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
             ),
             const SizedBox(height: 12),
-            if (_idPersonaExistente != null) ...[
-              ListTile(
-                contentPadding: EdgeInsets.zero,
-                title: Text(
-                  _nombrePersonaExistente ?? 'Persona ID: $_idPersonaExistente',
-                  style: const TextStyle(fontWeight: FontWeight.w500),
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Expanded(
+                  child: TextFormField(
+                    controller: _nombreCtrl,
+                    decoration: const InputDecoration(labelText: 'Nombre *'),
+                    validator: (v) =>
+                        (v == null || v.trim().isEmpty) ? 'Nombre requerido' : null,
+                  ),
                 ),
-                trailing: TextButton(
-                      onPressed: () async {
-                        final id = await pushFade(context, const SeleccionarPersonaScreen());
-                        if (id != null && mounted) _setPersonaExistente(id as int);
-                      },
-                  child: const Text('Cambiar'),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: TextFormField(
+                    controller: _apellidoCtrl,
+                    decoration: const InputDecoration(labelText: 'Apellido *'),
+                    validator: (v) =>
+                        (v == null || v.trim().isEmpty) ? 'Apellido requerido' : null,
+                  ),
                 ),
+              ],
+            ),
+            const SizedBox(height: 12),
+            TextFormField(
+              controller: _rutCtrl,
+              decoration: const InputDecoration(
+                labelText: 'RUT *',
+                helperText: 'Formato: 12.345.678-9',
               ),
-            ] else ...[
-              Row(
-                children: [
-                  Expanded(
-                    child: TextFormField(
-                      controller: _nombreCtrl,
-                      decoration: const InputDecoration(labelText: 'Nombre *'),
-                      validator: (v) =>
-                          (v == null || v.trim().isEmpty) ? 'Nombre requerido' : null,
+              keyboardType: TextInputType.text,
+              textCapitalization: TextCapitalization.characters,
+              inputFormatters: [
+                FilteringTextInputFormatter.allow(RegExp(r'[0-9kK]')),
+                RutInputFormatter(),
+              ],
+              validator: (v) {
+                final raw = v ?? '';
+                final clean = RutInputFormatter.clean(raw);
+                if (clean.isEmpty) return 'RUT requerido';
+                if (clean.length < 8 || clean.length > 9) return 'RUT incompleto';
+                final rutParaValidar = clean.length == 9
+                    ? '${clean.substring(0, 8)}-${clean.substring(8)}'
+                    : raw;
+                if (!RutUtils.esValido(rutParaValidar)) {
+                  return 'RUT inválido. Revisa el dígito verificador.';
+                }
+                return null;
+              },
+            ),
+            const SizedBox(height: 12),
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Expanded(
+                  child: FechaNacimientoField(
+                    value: _fechaNacimiento,
+                    onChanged: (d) => setState(() {
+                      _fechaNacimiento = d;
+                      _errorFechaRequerida = false;
+                    }),
+                    decoration: InputDecoration(
+                      labelText: 'Fecha de nacimiento *',
+                      errorText: _errorFechaRequerida ? 'Seleccione la fecha' : null,
                     ),
                   ),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: TextButton.icon(
-                      icon: const Icon(Icons.person_search, size: 18),
-                      label: const Text('Existente'),
-                      onPressed: () async {
-                        final id = await pushFade(context, const SeleccionarPersonaScreen());
-                        if (id != null && mounted) _setPersonaExistente(id as int);
-                      },
-                    ),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 12),
-              TextFormField(
-                controller: _rutCtrl,
-                decoration: const InputDecoration(
-                  labelText: 'RUT *',
-                  helperText: 'Formato: 12.345.678-9',
                 ),
-                keyboardType: TextInputType.text,
-                textCapitalization: TextCapitalization.characters,
-                inputFormatters: [
-                  FilteringTextInputFormatter.allow(RegExp(r'[0-9kK]')),
-                  RutInputFormatter(),
-                ],
-                validator: (v) {
-                  final clean = RutInputFormatter.clean(v ?? '');
-                  if (clean.isEmpty) return 'RUT requerido';
-                  if (!RutUtils.esValido(clean)) return 'RUT inválido';
-                  return null;
-                },
-              ),
-              const SizedBox(height: 12),
-              Row(
-                children: [
-                  Expanded(
-                    child: TextFormField(
-                      controller: _edadCtrl,
-                      decoration: const InputDecoration(labelText: 'Edad'),
-                      keyboardType: TextInputType.number,
-                    ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: SexoSelectorField(
+                    value: _sexoCodigo,
+                    decoration: const InputDecoration(labelText: 'Sexo'),
+                    onChanged: (v) => setState(() => _sexoCodigo = v),
                   ),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: TextFormField(
-                      controller: _sexoCtrl,
-                      decoration: const InputDecoration(labelText: 'Sexo'),
-                    ),
-                  ),
-                ],
+                ),
+              ],
+            ),
+            const SizedBox(height: 12),
+            InputDecorator(
+              decoration: const InputDecoration(
+                labelText: 'Edad',
+                border: OutlineInputBorder(),
               ),
-            ],
+              child: Text(
+                _fechaNacimiento != null
+                    ? '${EdadUtil.calcularEdad(_fechaNacimiento!)} años'
+                    : '—',
+                style: const TextStyle(fontSize: 16),
+              ),
+            ),
           ],
         ),
       ),
@@ -523,10 +538,13 @@ class _RegistroPacienteWizardScreenState
           emailCtrl: _emailCtrl,
           latitud: _latitud,
           longitud: _longitud,
-          onLatLngChanged: (lat, lng) {
+          onLocationChanged: (SelectedLocation loc) {
             setState(() {
-              _latitud = lat;
-              _longitud = lng;
+              _direccionCtrl.text = loc.address;
+              _comunaCtrl.text = loc.comuna ?? '';
+              _provinciaCtrl.text = loc.provincia ?? '';
+              _latitud = loc.latitude;
+              _longitud = loc.longitude;
             });
           },
           sectionTitle: 'Contacto y ubicación',
@@ -1010,7 +1028,7 @@ class _RegistroPacienteWizardScreenState
                       });
                       if (ctx.mounted) Navigator.pop(ctx, true);
                     } catch (e) {
-                      if (mounted) showErr(context, 'Error: $e');
+                      if (mounted) showErr(context, AppMessages.errorGuardar);
                     }
                   },
                   child: const Text('Guardar'),

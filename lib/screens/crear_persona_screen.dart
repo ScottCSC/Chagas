@@ -2,12 +2,19 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
+import '../utils/app_messages.dart';
 import '../utils/confirm_dialog.dart';
+import '../utils/edad_util.dart';
+import '../utils/persona_sexo_guardado.dart';
 import '../utils/rut_input_formatter.dart';
 import '../utils/rut_utils.dart';
+import '../utils/sexo_paciente.dart';
 import '../utils/toast.dart';
+import '../models/selected_location.dart';
 import '../widgets/contacto_ubicacion_form.dart';
+import '../widgets/fecha_nacimiento_field.dart';
 import '../widgets/save_button.dart';
+import '../widgets/sexo_selector_field.dart';
 
 class CrearPersonaScreen extends StatefulWidget {
   @override
@@ -18,8 +25,11 @@ class _CrearPersonaScreenState extends State<CrearPersonaScreen> {
   final _formKey = GlobalKey<FormState>();
 
   TextEditingController nombreCtrl = TextEditingController();
+  TextEditingController apellidoCtrl = TextEditingController();
   TextEditingController rutCtrl = TextEditingController();
-  TextEditingController edadCtrl = TextEditingController();
+  DateTime? fechaNacimiento;
+  bool _errorFechaRequerida = false;
+  String? sexoCodigo;
   TextEditingController direccionCtrl = TextEditingController();
   TextEditingController comunaCtrl = TextEditingController();
   TextEditingController provinciaCtrl = TextEditingController();
@@ -31,7 +41,27 @@ class _CrearPersonaScreenState extends State<CrearPersonaScreen> {
 
   bool guardando = false;
 
+  @override
+  void dispose() {
+    nombreCtrl.dispose();
+    apellidoCtrl.dispose();
+    rutCtrl.dispose();
+    direccionCtrl.dispose();
+    comunaCtrl.dispose();
+    provinciaCtrl.dispose();
+    telefonoCtrl.dispose();
+    emailCtrl.dispose();
+    super.dispose();
+  }
+
   void guardarPersona() async {
+    if (fechaNacimiento == null) {
+      setState(() => _errorFechaRequerida = true);
+      showErr(context, 'Seleccione la fecha de nacimiento');
+      return;
+    }
+    setState(() => _errorFechaRequerida = false);
+
     if (!_formKey.currentState!.validate()) return;
 
     final dirVacia = direccionCtrl.text.trim().isEmpty;
@@ -57,11 +87,9 @@ class _CrearPersonaScreenState extends State<CrearPersonaScreen> {
 
     setState(() => guardando = true);
 
-    // Validar DV del RUT antes de guardar (validación adicional de seguridad)
     final rutClean = RutInputFormatter.clean(rutCtrl.text.trim());
     if (rutClean.isNotEmpty) {
-      // Convertir a formato con guion para validar
-      final rutParaValidar = rutClean.length == 9 
+      final rutParaValidar = rutClean.length == 9
           ? '${rutClean.substring(0, 8)}-${rutClean.substring(8)}'
           : rutCtrl.text.trim();
       if (!RutUtils.esValido(rutParaValidar)) {
@@ -73,14 +101,19 @@ class _CrearPersonaScreenState extends State<CrearPersonaScreen> {
     }
 
     final supabase = Supabase.instance.client;
+    final sexoVal = SexoPaciente.codigoParaPayload(sexoCodigo);
+    debugLogSexoEnPayload('crear insert', sexoVal);
 
     try {
       final res = await supabase
           .from('persona')
           .insert({
             'nombre': nombreCtrl.text.trim(),
+            'apellido': apellidoCtrl.text.trim().isEmpty ? null : apellidoCtrl.text.trim(),
             'rut': rutClean,
-            'edad': int.tryParse(edadCtrl.text.trim()),
+            'fecha_nacimiento': EdadUtil.aIsoFecha(fechaNacimiento),
+            'edad': EdadUtil.calcularEdad(fechaNacimiento!),
+            'sexo': sexoVal,
             'direccion': direccionCtrl.text.trim().isEmpty ? null : direccionCtrl.text.trim(),
             'comuna': comunaCtrl.text.trim().isEmpty ? null : comunaCtrl.text.trim(),
             'provincia': provinciaCtrl.text.trim().isEmpty ? null : provinciaCtrl.text.trim(),
@@ -90,72 +123,127 @@ class _CrearPersonaScreenState extends State<CrearPersonaScreen> {
             'longitud': longitud,
           })
           .select()
-          .single(); // devuelve una sola fila
+          .single();
 
       setState(() => guardando = false);
 
-      // Puedes ver el id_persona si quieres:
       final idPersona = res['id_persona'];
-      // print("Nueva persona id = $idPersona");
-
-      // volvemos a la pantalla anterior devolviendo el id
       Navigator.pop(context, idPersona);
     } catch (e) {
       setState(() => guardando = false);
-      showErr(context, "Error al guardar persona: $e");
+      final sexoTry = SexoPaciente.codigoParaPayload(sexoCodigo);
+      debugLogErrorPersonaSexo(
+        'crear',
+        e,
+        sexoIntentado: sexoTry,
+        payloadParcial: {'sexo': sexoTry},
+      );
+      if (!mounted) return;
+      final extra = sufijoSnackbarSiFalloEnumSexo(e, sexoIntentado: sexoTry);
+      showErr(context, '${AppMessages.errorGuardar}${extra ?? ''}');
     }
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: Text("Crear Persona")),
+      appBar: AppBar(title: const Text('Crear Persona')),
       body: Padding(
         padding: const EdgeInsets.all(20),
         child: Form(
           key: _formKey,
           child: ListView(
             children: [
-              TextFormField(
-                controller: nombreCtrl,
-                decoration: InputDecoration(labelText: "Nombre completo"),
-                validator: (v) => v!.isEmpty ? "Ingrese nombre" : null,
+              Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Expanded(
+                    child: TextFormField(
+                      controller: nombreCtrl,
+                      decoration: const InputDecoration(labelText: 'Nombre *'),
+                      validator: (v) =>
+                          v == null || v.trim().isEmpty ? 'Ingrese nombre' : null,
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: TextFormField(
+                      controller: apellidoCtrl,
+                      decoration: const InputDecoration(labelText: 'Apellido *'),
+                      validator: (v) =>
+                          v == null || v.trim().isEmpty ? 'Ingrese apellido' : null,
+                    ),
+                  ),
+                ],
               ),
+              const SizedBox(height: 12),
               TextFormField(
                 controller: rutCtrl,
-                keyboardType: TextInputType.text, // IMPORTANTE: para permitir K
+                keyboardType: TextInputType.text,
                 inputFormatters: [
-                  // Solo números y K
                   FilteringTextInputFormatter.allow(RegExp(r'[0-9kK]')),
-                  // Formateo + límite + K solo al final
                   RutInputFormatter(),
                 ],
                 textCapitalization: TextCapitalization.characters,
                 decoration: const InputDecoration(
-                  labelText: "RUT",
+                  labelText: 'RUT *',
                   hintText: '12.345.678-K',
                   helperText: 'Formato: 12.345.678-9',
                 ),
                 validator: (v) {
-                  if (v == null || v.isEmpty) return "Ingrese RUT";
+                  if (v == null || v.isEmpty) return 'Ingrese RUT';
                   final rutClean = RutInputFormatter.clean(v);
                   if (rutClean.length < 8 || rutClean.length > 9) {
-                    return "RUT incompleto";
+                    return 'RUT incompleto';
                   }
-                  // Convertir a formato con guion para validar
-                  final rutParaValidar = rutClean.length == 9 
+                  final rutParaValidar = rutClean.length == 9
                       ? '${rutClean.substring(0, 8)}-${rutClean.substring(8)}'
                       : v;
                   if (!RutUtils.esValido(rutParaValidar)) {
-                    return "RUT inválido. Revisa el dígito verificador.";
+                    return 'RUT inválido. Revisa el dígito verificador.';
                   }
                   return null;
                 },
               ),
-              TextFormField(
-                controller: edadCtrl,
-                decoration: InputDecoration(labelText: "Edad"),
-                keyboardType: TextInputType.number,
+              const SizedBox(height: 12),
+              Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Expanded(
+                    child: FechaNacimientoField(
+                      value: fechaNacimiento,
+                      onChanged: (d) => setState(() {
+                        fechaNacimiento = d;
+                        _errorFechaRequerida = false;
+                      }),
+                      decoration: InputDecoration(
+                        labelText: 'Fecha de nacimiento *',
+                        errorText: _errorFechaRequerida ? 'Seleccione la fecha' : null,
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: SexoSelectorField(
+                      value: sexoCodigo,
+                      decoration: const InputDecoration(labelText: 'Sexo'),
+                      onChanged: (v) => setState(() => sexoCodigo = v),
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 12),
+              InputDecorator(
+                decoration: const InputDecoration(
+                  labelText: 'Edad',
+                  border: OutlineInputBorder(),
+                ),
+                child: Text(
+                  fechaNacimiento != null
+                      ? '${EdadUtil.calcularEdad(fechaNacimiento!)} años'
+                      : '—',
+                  style: const TextStyle(fontSize: 16),
+                ),
               ),
               const SizedBox(height: 20),
               ContactoUbicacionForm(
@@ -166,10 +254,13 @@ class _CrearPersonaScreenState extends State<CrearPersonaScreen> {
                 emailCtrl: emailCtrl,
                 latitud: latitud,
                 longitud: longitud,
-                onLatLngChanged: (lat, lng) {
+                onLocationChanged: (SelectedLocation loc) {
                   setState(() {
-                    latitud = lat;
-                    longitud = lng;
+                    direccionCtrl.text = loc.address;
+                    comunaCtrl.text = loc.comuna ?? '';
+                    provinciaCtrl.text = loc.provincia ?? '';
+                    latitud = loc.latitude;
+                    longitud = loc.longitude;
                   });
                 },
                 sectionTitle: 'Contacto y ubicación',

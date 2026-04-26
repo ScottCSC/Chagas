@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
+import '../utils/app_messages.dart';
 import '../utils/toast.dart';
 import '../widgets/form_actions_row.dart';
 import '../widgets/save_button.dart';
@@ -107,7 +108,7 @@ class _CrearExamenScreenState extends State<CrearExamenScreen> {
       Navigator.pop(context, true);
     } catch (e) {
       setState(() => guardando = false);
-      showErr(context, "Error al guardar examen: $e");
+      showErr(context, AppMessages.errorGuardar);
     }
   }
 

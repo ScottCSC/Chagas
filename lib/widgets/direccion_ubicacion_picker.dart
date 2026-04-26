@@ -1,19 +1,23 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:geolocator/geolocator.dart';
+import 'package:google_maps_flutter/google_maps_flutter.dart';
 
+import '../models/selected_location.dart';
+import '../screens/map_picker_screen.dart';
 import '../services/osm_search_service.dart';
+import '../utils/app_messages.dart';
 import '../utils/debouncer.dart';
 import '../utils/toast.dart';
 
-/// Widget unificado: dirección con autocompletado OSM + comuna/provincia + GPS + estado de ubicación.
+/// Campo Dirección con autocompletado OSM, GPS y botón al mapa.
 class DireccionUbicacionPicker extends StatefulWidget {
   final TextEditingController direccionCtrl;
   final TextEditingController comunaCtrl;
   final TextEditingController provinciaCtrl;
   final double? latitud;
   final double? longitud;
-  final void Function(double? lat, double? lng) onLatLngChanged;
+  final ValueChanged<SelectedLocation> onLocationChanged;
 
   const DireccionUbicacionPicker({
     super.key,
@@ -22,7 +26,7 @@ class DireccionUbicacionPicker extends StatefulWidget {
     required this.provinciaCtrl,
     required this.latitud,
     required this.longitud,
-    required this.onLatLngChanged,
+    required this.onLocationChanged,
   });
 
   @override
@@ -82,11 +86,7 @@ class _DireccionUbicacionPickerState extends State<DireccionUbicacionPicker> {
   }
 
   void _seleccionarSugerencia(OsmPlace place) {
-    widget.direccionCtrl.text = place.toDireccionBonita();
-    widget.direccionCtrl.selection = TextSelection.collapsed(offset: widget.direccionCtrl.text.length);
-    widget.comunaCtrl.text = place.toComuna() ?? '';
-    widget.provinciaCtrl.text = place.toProvincia() ?? '';
-    widget.onLatLngChanged(place.lat, place.lon);
+    widget.onLocationChanged(SelectedLocation.fromOsmPlace(place));
     setState(() {
       _sugerencias = [];
       _mostrarSugerencias = false;
@@ -99,6 +99,7 @@ class _DireccionUbicacionPickerState extends State<DireccionUbicacionPicker> {
     setState(() => _buscando = true);
     try {
       final serviceEnabled = await Geolocator.isLocationServiceEnabled();
+      if (!mounted) return;
       if (!serviceEnabled) {
         showErr(context, 'Activa el servicio de ubicación en el dispositivo.');
         setState(() => _buscando = false);
@@ -109,6 +110,7 @@ class _DireccionUbicacionPickerState extends State<DireccionUbicacionPicker> {
       if (permiso == LocationPermission.denied) {
         permiso = await Geolocator.requestPermission();
       }
+      if (!mounted) return;
       if (permiso == LocationPermission.denied ||
           permiso == LocationPermission.deniedForever) {
         showErr(context, 'Sin permisos de ubicación. Habilítalos en Ajustes.');
@@ -119,17 +121,77 @@ class _DireccionUbicacionPickerState extends State<DireccionUbicacionPicker> {
       final pos = await Geolocator.getCurrentPosition(
         desiredAccuracy: LocationAccuracy.high,
       );
-      widget.onLatLngChanged(pos.latitude, pos.longitude);
-      if (mounted) {
-        setState(() => _buscando = false);
+      final place = await OsmSearchService.reverse(pos.latitude, pos.longitude);
+      if (!mounted) return;
+      setState(() => _buscando = false);
+      if (place != null) {
+        widget.onLocationChanged(SelectedLocation.fromOsmPlace(place));
         showOk(context, 'Ubicación obtenida');
+      } else {
+        widget.onLocationChanged(
+          SelectedLocation(
+            address:
+                '${pos.latitude.toStringAsFixed(5)}, ${pos.longitude.toStringAsFixed(5)}',
+            latitude: pos.latitude,
+            longitude: pos.longitude,
+          ),
+        );
+        showOk(context, 'Coordenadas guardadas (sin dirección)');
       }
     } catch (e) {
       if (mounted) {
         setState(() => _buscando = false);
-        showErr(context, 'Error al obtener ubicación: $e');
+        showErr(context, AppMessages.errorUbicacion);
       }
     }
+  }
+
+  static const LatLng _defaultMontePatria = LatLng(-30.6916, -70.9461);
+
+  Future<void> _abrirMapa() async {
+    final initial = widget.latitud != null && widget.longitud != null
+        ? LatLng(widget.latitud!, widget.longitud!)
+        : _defaultMontePatria;
+
+    SelectedLocation? initialSel;
+    if (widget.latitud != null && widget.longitud != null) {
+      final d = widget.direccionCtrl.text.trim();
+      initialSel = SelectedLocation(
+        address: d.isNotEmpty ? d : 'Ubicación seleccionada',
+        latitude: widget.latitud!,
+        longitude: widget.longitud!,
+        comuna: widget.comunaCtrl.text.trim().isEmpty
+            ? null
+            : widget.comunaCtrl.text.trim(),
+        provincia: widget.provinciaCtrl.text.trim().isEmpty
+            ? null
+            : widget.provinciaCtrl.text.trim(),
+      );
+    }
+
+    final addrLine = widget.direccionCtrl.text.trim();
+    final picked = await Navigator.push<SelectedLocation>(
+      context,
+      MaterialPageRoute<SelectedLocation>(
+        builder: (_) => MapPickerScreen(
+          initialTarget: initial,
+          initialSelection: initialSel,
+          initialAddressLine: addrLine.isEmpty ? null : addrLine,
+        ),
+      ),
+    );
+
+    if (!mounted || picked == null) return;
+
+    widget.onLocationChanged(picked);
+    HapticFeedback.selectionClick();
+    showOk(context, 'Ubicación guardada');
+  }
+
+  String _resumenSeleccion() {
+    final d = widget.direccionCtrl.text.trim();
+    if (d.isEmpty) return '—';
+    return d;
   }
 
   @override
@@ -140,7 +202,7 @@ class _DireccionUbicacionPickerState extends State<DireccionUbicacionPicker> {
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
         const Text(
-          'Dirección y ubicación',
+          'Dirección',
           style: TextStyle(fontWeight: FontWeight.w600),
         ),
         const SizedBox(height: 8),
@@ -150,8 +212,11 @@ class _DireccionUbicacionPickerState extends State<DireccionUbicacionPicker> {
           decoration: InputDecoration(
             hintText: 'Escribe calle y número…',
             helperText: 'Sugerencias vía OpenStreetMap',
-            suffixIcon: _buscando
-                ? const Padding(
+            suffixIcon: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                if (_buscando)
+                  const Padding(
                     padding: EdgeInsets.all(12),
                     child: SizedBox(
                       width: 20,
@@ -159,7 +224,14 @@ class _DireccionUbicacionPickerState extends State<DireccionUbicacionPicker> {
                       child: CircularProgressIndicator(strokeWidth: 2),
                     ),
                   )
-                : null,
+                else
+                  IconButton(
+                    icon: const Icon(Icons.my_location_outlined),
+                    tooltip: 'Usar GPS',
+                    onPressed: _usarGps,
+                  ),
+              ],
+            ),
           ),
           onChanged: _buscarSugerencias,
           onTap: () {
@@ -183,7 +255,7 @@ class _DireccionUbicacionPickerState extends State<DireccionUbicacionPicker> {
               shrinkWrap: true,
               physics: const NeverScrollableScrollPhysics(),
               itemCount: _sugerencias.length,
-              separatorBuilder: (_, __) => const Divider(height: 1),
+              separatorBuilder: (context, _) => const Divider(height: 1),
               itemBuilder: (_, i) {
                 final place = _sugerencias[i];
                 return ListTile(
@@ -201,34 +273,32 @@ class _DireccionUbicacionPickerState extends State<DireccionUbicacionPicker> {
           ),
         ],
         const SizedBox(height: 12),
-        Row(
-          children: [
-            Expanded(
-              child: OutlinedButton.icon(
-                icon: const Icon(Icons.my_location, size: 20),
-                label: const Text('Usar GPS'),
-                onPressed: _buscando ? null : _usarGps,
-              ),
-            ),
-          ],
+        OutlinedButton.icon(
+          onPressed: _buscando ? null : _abrirMapa,
+          style: OutlinedButton.styleFrom(
+            minimumSize: const Size.fromHeight(48),
+          ),
+          icon: const Icon(Icons.map_outlined),
+          label: const Text('Seleccionar en el mapa'),
         ),
-        const SizedBox(height: 8),
-        Row(
-          children: [
-            Icon(
-              tieneUbicacion ? Icons.check_circle : Icons.info_outline,
-              size: 18,
-              color: tieneUbicacion ? Colors.green : Colors.grey,
-            ),
-            const SizedBox(width: 6),
-            Text(
-              tieneUbicacion ? 'Ubicación confirmada ✅' : 'Ubicación no confirmada',
-              style: TextStyle(
-                fontSize: 13,
-                color: tieneUbicacion ? Colors.green.shade700 : Theme.of(context).colorScheme.onSurfaceVariant,
-              ),
-            ),
-          ],
+        const SizedBox(height: 12),
+        Text(
+          'Ubicación seleccionada:',
+          style: TextStyle(
+            fontSize: 13,
+            fontWeight: FontWeight.w600,
+            color: Theme.of(context).colorScheme.onSurfaceVariant,
+          ),
+        ),
+        const SizedBox(height: 4),
+        Text(
+          _resumenSeleccion(),
+          style: TextStyle(
+            fontSize: 14,
+            color: tieneUbicacion
+                ? Theme.of(context).colorScheme.onSurface
+                : Theme.of(context).colorScheme.onSurfaceVariant,
+          ),
         ),
       ],
     );

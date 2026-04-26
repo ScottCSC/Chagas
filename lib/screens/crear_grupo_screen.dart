@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
+import '../utils/app_messages.dart';
 import '../utils/toast.dart';
 import '../widgets/save_button.dart';
 
@@ -62,7 +63,7 @@ class _CrearGrupoScreenState extends State<CrearGrupoScreen> {
       Navigator.pop(context, true);
     } catch (e) {
       setState(() => _guardando = false);
-      showErr(context, 'Error al guardar grupo: $e');
+      showErr(context, AppMessages.errorGuardar);
     }
   }
 

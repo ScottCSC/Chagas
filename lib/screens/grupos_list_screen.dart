@@ -1,8 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
+import '../utils/app_messages.dart';
 import '../utils/nav.dart';
 import '../utils/toast.dart';
+import '../widgets/states.dart';
 import 'crear_grupo_screen.dart';
 import 'grupo_detalle_screen.dart';
 
@@ -38,7 +40,7 @@ class _GruposListScreenState extends State<GruposListScreen> {
       });
     } catch (e) {
       setState(() => cargando = false);
-      showErr(context, 'Error cargando grupos: $e');
+      showErr(context, AppMessages.errorCargar);
     }
   }
 
@@ -47,9 +49,15 @@ class _GruposListScreenState extends State<GruposListScreen> {
     return Scaffold(
       appBar: AppBar(title: const Text('Grupos / operativos')),
       body: cargando
-          ? const Center(child: CircularProgressIndicator())
+          ? const AppLoading(compact: true)
           : grupos.isEmpty
-              ? const Center(child: Text('No hay grupos registrados'))
+              ? const AppEmptyState(
+                  text: 'No hay operativos registrados',
+                  subtitle:
+                      'Crea un operativo para asociar visitas y pacientes al terreno.',
+                  icon: Icons.groups_outlined,
+                  useLottie: true,
+                )
               : RefreshIndicator(
                   onRefresh: cargarGrupos,
                   child: ListView.builder(

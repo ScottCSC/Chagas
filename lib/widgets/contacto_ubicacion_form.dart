@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../models/selected_location.dart';
 import 'direccion_ubicacion_picker.dart';
 
 /// Validador de correo: vacío OK; si no vacío debe tener @ y un . después.
@@ -20,7 +21,7 @@ class ContactoUbicacionForm extends StatelessWidget {
   final TextEditingController emailCtrl;
   final double? latitud;
   final double? longitud;
-  final void Function(double? lat, double? lng) onLatLngChanged;
+  final ValueChanged<SelectedLocation> onLocationChanged;
   /// Título de la sección; si null no se muestra.
   final String? sectionTitle;
   /// Validador para el campo correo; si null no se valida.
@@ -35,7 +36,7 @@ class ContactoUbicacionForm extends StatelessWidget {
     required this.emailCtrl,
     required this.latitud,
     required this.longitud,
-    required this.onLatLngChanged,
+    required this.onLocationChanged,
     this.sectionTitle = 'Contacto y ubicación',
     this.correoValidator,
   });
@@ -58,7 +59,7 @@ class ContactoUbicacionForm extends StatelessWidget {
           provinciaCtrl: provinciaCtrl,
           latitud: latitud,
           longitud: longitud,
-          onLatLngChanged: onLatLngChanged,
+          onLocationChanged: onLocationChanged,
         ),
         const SizedBox(height: 12),
         TextFormField(

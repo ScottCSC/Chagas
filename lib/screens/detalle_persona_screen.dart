@@ -5,10 +5,15 @@ import '../models/examen.dart';
 import '../models/paciente_resume.dart';
 import '../models/persona.dart';
 import '../repositories/app_repositories.dart';
+import '../models/historial_evento.dart';
+import '../services/historial_paciente_service.dart';
 import '../services/pacientes_resume_service.dart';
+import '../utils/app_messages.dart';
 import '../utils/nav.dart';
+import '../utils/paciente_estado_global.dart';
 import '../utils/seguimiento_rules.dart';
 import '../utils/toast.dart';
+import '../widgets/states.dart';
 import 'crear_agudo_screen.dart';
 import 'crear_bajo_control_screen.dart';
 import 'crear_examen_screen.dart';
@@ -39,10 +44,12 @@ class _DetallePersonaScreenState extends State<DetallePersonaScreen> {
   List gestantes = [];
   List agudo = [];
   List examenes = [];
+  List<HistorialEvento> _historial = [];
   PacienteResume? _resume;
   bool cargando = true;
   bool _fueEditado = false;
   final _resumeService = PacientesResumeService();
+  final _historialService = HistorialPacienteService();
 
   @override
   void initState() {
@@ -75,9 +82,19 @@ class _DetallePersonaScreenState extends State<DetallePersonaScreen> {
       final exList = results[7] as List<Examen>;
       final resume = results[8] as PacienteResume?;
 
+      final hist = _historialService.buildFromDatos(
+        examenes: exList,
+        inasistencias: ina,
+        bajoControl: bc,
+        tratamiento: t,
+        gestantes: ges,
+        agudo: ag,
+      );
+
       setState(() {
         persona = p != null ? (p as Persona).toJson() : null;
         _resume = resume;
+        _historial = hist;
         grupos = g;
         tratamientos = t;
         inasistencias = ina;
@@ -88,7 +105,6 @@ class _DetallePersonaScreenState extends State<DetallePersonaScreen> {
         cargando = false;
       });
     } catch (e) {
-      debugPrint("Error cargando ficha: $e");
       setState(() => cargando = false);
     }
   }
@@ -100,8 +116,6 @@ class _DetallePersonaScreenState extends State<DetallePersonaScreen> {
           style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
         ),
       );
-
-  String _v(String key) => (persona?[key] ?? '—').toString();
 
   @override
   Widget build(BuildContext context) {
@@ -125,7 +139,7 @@ class _DetallePersonaScreenState extends State<DetallePersonaScreen> {
         Navigator.pop(context, _fueEditado);
       },
       child: DefaultTabController(
-        length: 3,
+        length: 4,
         child: Scaffold(
           appBar: AppBar(
             title: Text(personaData['nombre']?.toString() ?? 'Paciente'),
@@ -146,8 +160,11 @@ class _DetallePersonaScreenState extends State<DetallePersonaScreen> {
               ),
             ],
             bottom: const TabBar(
+              isScrollable: true,
+              tabAlignment: TabAlignment.start,
               tabs: [
                 Tab(text: 'Resumen'),
+                Tab(text: 'Historial'),
                 Tab(text: 'Módulos'),
                 Tab(text: 'Ubicación'),
               ],
@@ -156,6 +173,7 @@ class _DetallePersonaScreenState extends State<DetallePersonaScreen> {
           body: TabBarView(
             children: [
               _TabResumen(persona: personaData, resume: _resume, titulo: _titulo, onRefresh: cargarTodo),
+              _TabHistorial(eventos: _historial, onRefresh: cargarTodo),
               _TabModulos(
                 idPersona: widget.idPersona,
                 bajoControl: bajoControl,
@@ -208,8 +226,11 @@ class _TabResumen extends StatelessWidget {
           crossAxisAlignment: CrossAxisAlignment.stretch,
           mainAxisSize: MainAxisSize.min,
           children: [
+            titulo('Estado actual del paciente'),
+            _EstadoActualPacienteCard(resume: resume),
+            const SizedBox(height: 16),
             if (resume != null) ...[
-              titulo("Seguimiento"),
+              titulo('Seguimiento'),
               Card(
                 child: Padding(
                   padding: const EdgeInsets.all(16),
@@ -226,28 +247,6 @@ class _TabResumen extends StatelessWidget {
                         title: const Text('Último control'),
                         subtitle: Text('${resume!.lastControlLabel} · ${_formatDate(resume!.lastControlDate)}'),
                       ),
-                      if (resume!.overallStatus == Semaforo.rojo) ...[
-                        const SizedBox(height: 8),
-                        Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                          decoration: BoxDecoration(
-                            color: Colors.red.withOpacity(0.1),
-                            borderRadius: BorderRadius.circular(8),
-                          ),
-                          child: Row(
-                            children: [
-                              Icon(Icons.warning_amber_rounded, color: Colors.red.shade700, size: 20),
-                              const SizedBox(width: 8),
-                              const Expanded(
-                                child: Text(
-                                  'Revisar exámenes/controles pendientes',
-                                  style: TextStyle(fontSize: 13, fontWeight: FontWeight.w500),
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
-                      ],
                     ],
                   ),
                 ),
@@ -267,7 +266,7 @@ class _TabResumen extends StatelessWidget {
                     if (rut.isNotEmpty && rut != '—') {
                       Clipboard.setData(ClipboardData(text: rut));
                       HapticFeedback.selectionClick();
-                      showOk(context, 'RUT copiado');
+                      showOk(context, AppMessages.rutCopiado);
                     }
                   },
                 ),
@@ -298,6 +297,146 @@ class _TabResumen extends StatelessWidget {
   }
 }
 
+class _EstadoActualPacienteCard extends StatelessWidget {
+  final PacienteResume? resume;
+
+  const _EstadoActualPacienteCard({this.resume});
+
+  static Color _colorSemaforo(Semaforo s) {
+    switch (s) {
+      case Semaforo.rojo:
+        return Colors.red.shade700;
+      case Semaforo.amarillo:
+        return Colors.amber.shade800;
+      case Semaforo.verde:
+        return Colors.green.shade700;
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+    if (resume == null) {
+      return Card(
+        child: Padding(
+          padding: const EdgeInsets.all(16),
+          child: Text(
+            'Aún no hay datos de exámenes o control para calcular el estado global.',
+            style: TextStyle(color: cs.onSurfaceVariant, height: 1.35),
+          ),
+        ),
+      );
+    }
+    final r = resume!;
+    final accent = _colorSemaforo(r.overallStatus);
+    return Card(
+      clipBehavior: Clip.antiAlias,
+      child: IntrinsicHeight(
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Container(width: 5, color: accent),
+            Expanded(
+              child: Padding(
+                padding: const EdgeInsets.all(16),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        Icon(Icons.monitor_heart_outlined, color: accent, size: 22),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: Text(
+                            tituloEstadoGlobal(r.overallStatus),
+                            style: TextStyle(
+                              fontSize: 17,
+                              fontWeight: FontWeight.w700,
+                              color: accent,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 10),
+                    Text(
+                      detalleEstadoGlobalClinico(r),
+                      style: TextStyle(fontSize: 14, height: 1.35, color: cs.onSurface),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+String _formatHistorialFecha(DateTime d) {
+  return '${d.day.toString().padLeft(2, '0')}/${d.month.toString().padLeft(2, '0')}/${d.year}';
+}
+
+class _TabHistorial extends StatelessWidget {
+  final List<HistorialEvento> eventos;
+  final Future<void> Function() onRefresh;
+
+  const _TabHistorial({
+    required this.eventos,
+    required this.onRefresh,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+    if (eventos.isEmpty) {
+      return RefreshIndicator(
+        onRefresh: onRefresh,
+        child: ListView(
+          physics: const AlwaysScrollableScrollPhysics(),
+          children: const [
+            SizedBox(height: 48),
+            AppEmptyState(
+              text: 'Sin eventos en el historial',
+              subtitle: 'Los registros de exámenes y módulos aparecerán aquí ordenados por fecha.',
+              icon: Icons.history_toggle_off_outlined,
+              useLottie: false,
+            ),
+          ],
+        ),
+      );
+    }
+    return RefreshIndicator(
+      onRefresh: onRefresh,
+      child: ListView.separated(
+        padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 12),
+        itemCount: eventos.length,
+        separatorBuilder: (_, __) => const Divider(height: 1),
+        itemBuilder: (context, i) {
+          final e = eventos[i];
+          return ListTile(
+            leading: CircleAvatar(
+              radius: 18,
+              backgroundColor: cs.surfaceContainerHighest,
+              child: Icon(e.icono, size: 20, color: cs.primary),
+            ),
+            title: Text(
+              '${_formatHistorialFecha(e.fecha)} — ${e.tipo}',
+              style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 14),
+            ),
+            subtitle: Padding(
+              padding: const EdgeInsets.only(top: 4),
+              child: Text(e.detalle, style: TextStyle(color: cs.onSurfaceVariant, height: 1.3)),
+            ),
+            isThreeLine: e.detalle.length > 48,
+          );
+        },
+      ),
+    );
+  }
+}
+
 class _TabModulos extends StatelessWidget {
   final int idPersona;
   final List bajoControl;
@@ -317,7 +456,7 @@ class _TabModulos extends StatelessWidget {
     required this.inasistencias,
     required this.gestantes,
     required this.agudo,
-     required this.examenes,
+    required this.examenes,
     required this.grupos,
     required this.titulo,
     required this.onRefresh,
@@ -786,12 +925,12 @@ Future<void> _marcarExamenRealizado(
     });
 
     if (context.mounted) {
-      showOk(context, 'Examen actualizado');
+      showOk(context, AppMessages.examenActualizado);
     }
     await onRefresh();
   } catch (e) {
     if (context.mounted) {
-      showErr(context, 'Error al actualizar examen: $e');
+      showErr(context, AppMessages.errorExamenActualizar);
     }
   }
 }

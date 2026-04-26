@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../utils/app_messages.dart';
 import '../utils/toast.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
@@ -48,7 +49,7 @@ class _SeleccionarPersonaScreenState extends State<SeleccionarPersonaScreen> {
       });
     } catch (e) {
       setState(() => cargando = false);
-      showErr(context, 'Error cargando personas: $e');
+      showErr(context, AppMessages.errorCargar);
     }
   }
 
