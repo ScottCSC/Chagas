@@ -66,7 +66,7 @@ class _SectoresListScreenState extends State<SectoresListScreen> {
                         return Card(
                           child: ListTile(
                             title: Text(s.nombreSector, style: const TextStyle(fontWeight: FontWeight.w600)),
-                            subtitle: Text(s.comuna == null || s.comuna!.isEmpty ? '—' : s.comuna!),
+                            subtitle: Text(s.comuna.isEmpty ? '—' : s.comuna),
                           ),
                         );
                       },

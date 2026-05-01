@@ -39,7 +39,9 @@ class _DetalleCasoScreenState extends State<DetalleCasoScreen> {
       if (c != null && c.idSector != null) {
         s = await _sectorRepo.getSectorById(c.idSector!);
       }
-      final h = c != null ? await _casoRepo.getHistorialEstado(widget.idCaso) : <HistorialEstadoCaso>[];
+      final h = c != null
+          ? await _casoRepo.getHistorialEstado(widget.idCaso)
+          : <HistorialEstadoCaso>[];
       if (!mounted) return;
       setState(() {
         _caso = c;
@@ -58,9 +60,51 @@ class _DetalleCasoScreenState extends State<DetalleCasoScreen> {
   }
 
   String _fmtFecha(DateTime? d) {
-    if (d == null) return '—';
+    if (d == null) return '';
     final l = d.toLocal();
     return '${l.day.toString().padLeft(2, '0')}/${l.month.toString().padLeft(2, '0')}/${l.year}';
+  }
+
+  String _tipoContactoLabel(String? t) {
+    switch ((t ?? '').toLowerCase()) {
+      case 'paciente':
+        return 'Paciente';
+      case 'familiar':
+        return 'Familiar';
+      case 'cuidador':
+        return 'Cuidador';
+      case 'otro':
+        return 'Otro';
+      case 'no_informa':
+      case '':
+        return 'No informa';
+      default:
+        return t ?? '';
+    }
+  }
+
+  Widget _detalleEstadoChip(String? estadoRaw) {
+    final k = EpidemiologiaUi.claveEstadoCaso(estadoRaw);
+    final color = EpidemiologiaUi.getEstadoCasoColor(k);
+    final label = EpidemiologiaUi.getEstadoCasoLabel(k);
+    return Align(
+      alignment: Alignment.centerLeft,
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+        decoration: BoxDecoration(
+          color: color.withValues(alpha: 0.12),
+          borderRadius: BorderRadius.circular(999),
+        ),
+        child: Text(
+          label,
+          style: TextStyle(
+            color: color,
+            fontWeight: FontWeight.w700,
+            fontSize: 12,
+          ),
+        ),
+      ),
+    );
   }
 
   @override
@@ -71,32 +115,43 @@ class _DetalleCasoScreenState extends State<DetalleCasoScreen> {
       );
     }
     if (_caso == null) {
-      return const Scaffold(
-        body: Center(child: Text('Caso no encontrado')),
+      return Scaffold(
+        appBar: AppBar(title: const Text('Caso')),
+        body: const Center(child: Text('Caso no encontrado')),
       );
     }
     final caso = _caso!;
 
     return DefaultTabController(
-      length: 2,
+      length: 3,
       child: Scaffold(
         appBar: AppBar(
           title: Text(caso.codigoCaso ?? 'Caso #${caso.idCaso}'),
+          actions: [
+            Padding(
+              padding: const EdgeInsets.only(right: 12),
+              child: Center(child: _detalleEstadoChip(caso.estadoActual)),
+            ),
+          ],
           bottom: const TabBar(
             tabs: [
               Tab(text: 'Resumen'),
-              Tab(text: 'Historial'),
+              Tab(text: 'Ubicación'),
+              Tab(text: 'Observación'),
             ],
           ),
         ),
         body: TabBarView(
           children: [
-            _ResumenCaso(
+            _ResumenTab(
               caso: caso,
-              sector: _sector,
               fmtFecha: _fmtFecha,
+              tipoContactoLabel: _tipoContactoLabel,
+              estadoChipBuilder: _detalleEstadoChip,
+              historial: _historial,
             ),
-            _HistorialList(historial: _historial, fmtFecha: _fmtFecha),
+            _UbicacionTab(sector: _sector),
+            _ObservacionTab(observacion: caso.observacionGeneral),
           ],
         ),
       ),
@@ -104,141 +159,397 @@ class _DetalleCasoScreenState extends State<DetalleCasoScreen> {
   }
 }
 
-class _ResumenCaso extends StatelessWidget {
-  final CasoEpidemiologico caso;
-  final Sector? sector;
-  final String Function(DateTime? d) fmtFecha;
+// ────────────────────────────────────────────────────────
 
-  const _ResumenCaso({
+Widget _detailSectionCard({
+  required String title,
+  required IconData icon,
+  required List<Widget> children,
+  List<Widget>? actions,
+}) {
+  return Card(
+    elevation: 1,
+    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
+    child: Padding(
+      padding: const EdgeInsets.all(16),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Icon(icon, size: 22),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  title,
+                  style: const TextStyle(
+                    fontSize: 17,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+              ),
+              if (actions != null) ...actions,
+            ],
+          ),
+          const SizedBox(height: 16),
+          ...children,
+        ],
+      ),
+    ),
+  );
+}
+
+Widget _detailInfoRow({
+  required IconData icon,
+  required String label,
+  required String value,
+}) {
+  final display = value.trim().isEmpty ? 'No informado' : value;
+  return Padding(
+    padding: const EdgeInsets.symmetric(vertical: 8),
+    child: Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Icon(icon, size: 20, color: Colors.grey),
+        const SizedBox(width: 12),
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                label,
+                style: TextStyle(
+                  fontSize: 12,
+                  color: Colors.grey.shade600,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+              const SizedBox(height: 2),
+              Text(
+                display,
+                style: const TextStyle(
+                  fontSize: 15,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ],
+    ),
+  );
+}
+
+Widget _detailEstadoRow({
+  required Widget Function(String?) chipBuilder,
+  required String? estadoActual,
+}) {
+  return Padding(
+    padding: const EdgeInsets.symmetric(vertical: 8),
+    child: Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Icon(Icons.flag_outlined, size: 20, color: Colors.grey),
+        const SizedBox(width: 12),
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                'Estado',
+                style: TextStyle(
+                  fontSize: 12,
+                  color: Colors.grey.shade600,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+              const SizedBox(height: 6),
+              chipBuilder(estadoActual),
+            ],
+          ),
+        ),
+      ],
+    ),
+  );
+}
+
+class _ResumenTab extends StatelessWidget {
+  final CasoEpidemiologico caso;
+  final String Function(DateTime?) fmtFecha;
+  final String Function(String?) tipoContactoLabel;
+  final Widget Function(String?) estadoChipBuilder;
+  final List<HistorialEstadoCaso> historial;
+
+  const _ResumenTab({
     required this.caso,
-    required this.sector,
     required this.fmtFecha,
+    required this.tipoContactoLabel,
+    required this.estadoChipBuilder,
+    required this.historial,
   });
 
   @override
   Widget build(BuildContext context) {
-    final color = EpidemiologiaUi.getEstadoCasoColor(caso.estadoActual ?? '');
+    return ListView(
+      padding: const EdgeInsets.all(16),
+      children: [
+        _detailSectionCard(
+          title: 'Identificación',
+          icon: Icons.badge_outlined,
+          children: [
+            _detailInfoRow(
+              icon: Icons.qr_code_2,
+              label: 'Código',
+              value: caso.codigoCaso ?? '',
+            ),
+            _detailEstadoRow(
+              chipBuilder: estadoChipBuilder,
+              estadoActual: caso.estadoActual,
+            ),
+            _detailInfoRow(
+              icon: Icons.event_outlined,
+              label: 'Fecha registro',
+              value: fmtFecha(caso.fechaRegistro),
+            ),
+          ],
+        ),
+        const SizedBox(height: 14),
+        _detailSectionCard(
+          title: 'Datos del caso',
+          icon: Icons.person_outline,
+          children: [
+            _detailInfoRow(
+              icon: Icons.wc_outlined,
+              label: 'Género',
+              value: EpidemiologiaUi.generoLabelEpi(caso.genero),
+            ),
+            _detailInfoRow(
+              icon: Icons.cake_outlined,
+              label: 'Edad',
+              value: caso.edad != null ? '${caso.edad} años' : '',
+            ),
+            _detailInfoRow(
+              icon: Icons.work_outline,
+              label: 'Ocupación',
+              value: (caso.ocupacion ?? '').trim(),
+            ),
+          ],
+        ),
+        const SizedBox(height: 14),
+        _detailSectionCard(
+          title: 'Contacto',
+          icon: Icons.contact_mail_outlined,
+          children: [
+            _detailInfoRow(
+              icon: Icons.toggle_on_outlined,
+              label: 'Disponible',
+              value: (caso.contactoDisponible == true) ? 'Sí' : 'No',
+            ),
+            _detailInfoRow(
+              icon: Icons.category_outlined,
+              label: 'Tipo',
+              value: tipoContactoLabel(caso.tipoContacto),
+            ),
+          ],
+        ),
+        const SizedBox(height: 14),
+        _detailSectionCard(
+          title: 'Historial de estado',
+          icon: Icons.history,
+          children: historial.isEmpty
+              ? [
+                  Text(
+                    'Sin cambios registrados.',
+                    style: TextStyle(
+                      color: Theme.of(context).colorScheme.onSurfaceVariant,
+                      fontSize: 14,
+                    ),
+                  ),
+                ]
+              : historial
+                  .map(
+                    (h) => Padding(
+                      padding: const EdgeInsets.only(bottom: 12),
+                      child: Row(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Icon(Icons.swap_horiz,
+                              size: 20, color: Colors.grey.shade600),
+                          const SizedBox(width: 12),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  '${h.estadoAnterior ?? '—'} → ${h.estadoNuevo ?? '—'}',
+                                  style: const TextStyle(
+                                    fontSize: 15,
+                                    fontWeight: FontWeight.w600,
+                                  ),
+                                ),
+                                const SizedBox(height: 2),
+                                Text(
+                                  fmtFecha(h.fechaCambio),
+                                  style: TextStyle(
+                                    fontSize: 12,
+                                    color: Colors.grey.shade600,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  )
+                  .toList(),
+        ),
+      ],
+    );
+  }
+}
+
+class _UbicacionTab extends StatelessWidget {
+  final Sector? sector;
+
+  const _UbicacionTab({required this.sector});
+
+  @override
+  Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+    final s = sector;
 
     return ListView(
       padding: const EdgeInsets.all(16),
       children: [
-        Card(
-          child: Padding(
-            padding: const EdgeInsets.all(16),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  EpidemiologiaUi.getEstadoCasoLabel(caso.estadoActual ?? ''),
-                  style: TextStyle(
-                    fontWeight: FontWeight.w800,
-                    color: color,
-                    fontSize: 16,
-                  ),
+        _detailSectionCard(
+          title: 'Ubicación territorial',
+          icon: Icons.place_outlined,
+          children: [
+            if (s == null)
+              Text(
+                'No hay información de sector para este caso.',
+                style: TextStyle(
+                  color: cs.onSurfaceVariant,
+                  fontSize: 14,
                 ),
-                const SizedBox(height: 12),
-                _fila('Código', caso.codigoCaso ?? '—'),
-                _fila('Fecha registro', fmtFecha(caso.fechaRegistro)),
-                _fila('Género', EpidemiologiaUi.generoLabelEpi(caso.genero)),
-                _fila('Edad', caso.edad != null ? '${caso.edad}' : '—'),
-                _fila('Sector', sector?.nombreSector ?? '—'),
-                _fila('Comuna', sector?.comuna ?? '—'),
-                _fila('Ocupación', (caso.ocupacion == null || caso.ocupacion!.isEmpty) ? '—' : caso.ocupacion!),
-                _fila('Contacto disponible', (caso.contactoDisponible == true) ? 'Sí' : 'No'),
-                _fila('Tipo de contacto', _tipoLabel(caso.tipoContacto)),
-              ],
-            ),
-          ),
+              )
+            else ...[
+              _detailInfoRow(
+                icon: Icons.map_outlined,
+                label: 'Sector',
+                value: s.nombreSector,
+              ),
+              _detailInfoRow(
+                icon: Icons.location_city_outlined,
+                label: 'Comuna',
+                value: s.comuna,
+              ),
+              if (s.latitudCentroide != null && s.longitudCentroide != null)
+                _detailInfoRow(
+                  icon: Icons.my_location,
+                  label: 'Centroide',
+                  value:
+                      '${s.latitudCentroide!.toStringAsFixed(5)}, ${s.longitudCentroide!.toStringAsFixed(5)}',
+                ),
+            ],
+          ],
         ),
-        const SizedBox(height: 12),
-        Card(
-          child: Padding(
-            padding: const EdgeInsets.all(16),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                const Text('Observación general', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
-                const SizedBox(height: 8),
-                Text(
-                  (caso.observacionGeneral == null || caso.observacionGeneral!.isEmpty)
-                      ? '—'
-                      : caso.observacionGeneral!,
+        const SizedBox(height: 14),
+        Container(
+          padding: const EdgeInsets.all(14),
+          decoration: BoxDecoration(
+            color: cs.primaryContainer.withValues(alpha: 0.35),
+            borderRadius: BorderRadius.circular(14),
+          ),
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Icon(Icons.shield_outlined, color: cs.primary, size: 22),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Text(
+                  'No se almacena domicilio exacto. Solo sector territorial.',
+                  style: TextStyle(fontSize: 13, color: cs.onSurface),
                 ),
-                const SizedBox(height: 8),
-                Text(
-                  'No ingresar nombres, RUT, teléfonos ni datos personales.',
-                  style: TextStyle(
-                    fontSize: 12,
-                    color: Theme.of(context).colorScheme.onSurfaceVariant,
-                  ),
-                ),
-              ],
-            ),
+              ),
+            ],
           ),
         ),
       ],
     );
   }
-
-  String _tipoLabel(String? t) {
-    if (t == null || t.isEmpty) return '—';
-    return t;
-  }
-
-  static Widget _fila(String k, String v) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 4),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          SizedBox(
-            width: 140,
-            child: Text(k, style: const TextStyle(color: Colors.black54, fontSize: 14)),
-          ),
-          Expanded(child: Text(v, style: const TextStyle(fontSize: 14))),
-        ],
-      ),
-    );
-  }
 }
 
-class _HistorialList extends StatelessWidget {
-  final List<HistorialEstadoCaso> historial;
-  final String Function(DateTime? d) fmtFecha;
-
-  const _HistorialList({required this.historial, required this.fmtFecha});
+class _ObservacionTab extends StatelessWidget {
+  final String? observacion;
+  const _ObservacionTab({required this.observacion});
 
   @override
   Widget build(BuildContext context) {
-    if (historial.isEmpty) {
-      return ListView(
-        padding: const EdgeInsets.all(24),
-        children: const [
-          Text('No hay historial de cambios de estado para este caso.'),
-        ],
-      );
-    }
-    return ListView.separated(
+    final cs = Theme.of(context).colorScheme;
+    final hasContent = observacion != null && observacion!.trim().isNotEmpty;
+
+    return ListView(
       padding: const EdgeInsets.all(16),
-      itemCount: historial.length,
-      separatorBuilder: (_, _) => const SizedBox(height: 8),
-      itemBuilder: (_, i) {
-        final h = historial[i];
-        return Card(
-          child: ListTile(
-            title: Text('${h.estadoAnterior ?? "—"} → ${h.estadoNuevo ?? "—"}'),
-            subtitle: Text(
-              '${fmtFecha(h.fechaCambio)} · ${(h.observacion ?? '').isNotEmpty ? h.observacion! : "Sin nota"}\n'
-              'Cambiado por: ${h.cambiadoPor ?? "—"}',
-            ),
-            isThreeLine: true,
-            onLongPress: () {
-              final t = h.observacion ?? '';
-              if (t.isNotEmpty) Clipboard.setData(ClipboardData(text: t));
-            },
+      children: [
+        _detailSectionCard(
+          title: 'Observación general',
+          icon: Icons.notes_outlined,
+          actions: hasContent
+              ? [
+                  IconButton(
+                    tooltip: 'Copiar',
+                    icon: const Icon(Icons.copy_all_outlined, size: 22),
+                    onPressed: () {
+                      Clipboard.setData(ClipboardData(text: observacion!));
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        const SnackBar(content: Text('Copiado')),
+                      );
+                    },
+                  ),
+                ]
+              : null,
+          children: [
+            if (!hasContent)
+              Text(
+                'Sin observaciones registradas.',
+                style: TextStyle(color: cs.onSurfaceVariant, fontSize: 14),
+              )
+            else
+              SelectableText(
+                observacion!,
+                style: const TextStyle(fontSize: 15, height: 1.45),
+              ),
+          ],
+        ),
+        const SizedBox(height: 14),
+        Container(
+          padding: const EdgeInsets.all(14),
+          decoration: BoxDecoration(
+            color: cs.errorContainer.withValues(alpha: 0.35),
+            borderRadius: BorderRadius.circular(14),
           ),
-        );
-      },
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Icon(Icons.privacy_tip_outlined,
+                  color: cs.onErrorContainer, size: 22),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Text(
+                  'No ingresar datos personales.',
+                  style: TextStyle(
+                    fontSize: 13,
+                    color: cs.onErrorContainer,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ],
     );
   }
 }

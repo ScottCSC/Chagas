@@ -14,6 +14,53 @@ import 'grupos_list_screen.dart';
 
 enum FiltroVer { todos, nuevo, reingreso, tratado }
 
+Color _verEstadoColor(String estado) {
+  switch (estado) {
+    case 'nuevo':
+      return const Color(0xFF1565C0);
+    case 'reingreso':
+      return const Color(0xFFF9A825);
+    case 'tratado':
+      return const Color(0xFF2E7D32);
+    default:
+      return Colors.grey;
+  }
+}
+
+String _verEstadoLabel(String estado) {
+  switch (estado) {
+    case 'nuevo':
+      return 'Caso nuevo';
+    case 'reingreso':
+      return 'Reingreso';
+    case 'tratado':
+      return 'Tratado';
+    default:
+      return 'No informado';
+  }
+}
+
+Widget _verEstadoChip(String? estadoRaw) {
+  final estado = EpidemiologiaUi.claveEstadoCaso(estadoRaw);
+  final color = _verEstadoColor(estado);
+
+  return Container(
+    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+    decoration: BoxDecoration(
+      color: color.withValues(alpha: 0.12),
+      borderRadius: BorderRadius.circular(999),
+    ),
+    child: Text(
+      _verEstadoLabel(estado),
+      style: TextStyle(
+        color: color,
+        fontWeight: FontWeight.w700,
+        fontSize: 12,
+      ),
+    ),
+  );
+}
+
 class VerScreen extends StatefulWidget {
   final String initialFilter; // all | today | last7
 
@@ -307,8 +354,10 @@ class _VerScreenState extends State<VerScreen> {
                           child: ListView.separated(
                             key: const PageStorageKey<String>('ver_screen_list'),
                             controller: _scrollController,
+                            padding: const EdgeInsets.fromLTRB(12, 4, 12, 16),
                             itemCount: filtrados.length,
-                            separatorBuilder: (context, _) => const Divider(height: 1),
+                            separatorBuilder: (context, _) =>
+                                const SizedBox(height: 10),
                             itemBuilder: (_, i) {
                               final c = filtrados[i];
                               final idCaso = c.idCaso;
@@ -408,43 +457,119 @@ class _CasoTile extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final k = EpidemiologiaUi.claveEstadoCaso(estadoKey);
-    final color = EpidemiologiaUi.getEstadoCasoColor(k);
-    final label = EpidemiologiaUi.getEstadoCasoLabel(k);
+    final accent = _verEstadoColor(k);
+    final cs = Theme.of(context).colorScheme;
 
     return Card(
       margin: EdgeInsets.zero,
-      child: ListTile(
-        title: Text(
-          codigo,
-          style: const TextStyle(fontWeight: FontWeight.w800),
-        ),
-        subtitle: Padding(
-          padding: const EdgeInsets.only(top: 6),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
+      elevation: 1,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
+      clipBehavior: Clip.antiAlias,
+      child: InkWell(
+        onTap: onTap,
+        child: IntrinsicHeight(
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              Text(label, style: TextStyle(fontWeight: FontWeight.w600, color: color)),
-              const SizedBox(height: 8),
-              Text('📍 Sector: $sector'),
-              Text('Edad: ${edad != null ? "$edad" : "—"}'),
-              Text('Género: $genero'),
-              Text('Ocupación: $ocupacion'),
+              Container(width: 4, color: accent),
+              Expanded(
+                child: Padding(
+                  padding: const EdgeInsets.fromLTRB(16, 14, 12, 14),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Expanded(
+                            child: Text(
+                              codigo,
+                              maxLines: 2,
+                              overflow: TextOverflow.ellipsis,
+                              style: TextStyle(
+                                fontSize: 18,
+                                fontWeight: FontWeight.w800,
+                                letterSpacing: 0.15,
+                                height: 1.15,
+                                color: cs.onSurface,
+                              ),
+                            ),
+                          ),
+                          const SizedBox(width: 10),
+                          _verEstadoChip(estadoKey),
+                        ],
+                      ),
+                      const SizedBox(height: 12),
+                      Wrap(
+                        spacing: 12,
+                        runSpacing: 8,
+                        children: [
+                          _MetaItem(
+                            icon: Icons.place_outlined,
+                            text: sector,
+                            color: cs.onSurfaceVariant,
+                          ),
+                          _MetaItem(
+                            icon: Icons.cake_outlined,
+                            text: edad != null ? '$edad años' : 'Edad —',
+                            color: cs.onSurfaceVariant,
+                          ),
+                          _MetaItem(
+                            icon: Icons.person_outline,
+                            text: genero,
+                            color: cs.onSurfaceVariant,
+                          ),
+                          _MetaItem(
+                            icon: Icons.work_outline,
+                            text: ocupacion,
+                            color: cs.onSurfaceVariant,
+                          ),
+                        ],
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+              Padding(
+                padding: const EdgeInsets.only(right: 8),
+                child: Icon(Icons.chevron_right, color: cs.onSurfaceVariant),
+              ),
             ],
           ),
         ),
-        trailing: Container(
-          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-          decoration: BoxDecoration(
-            color: color.withValues(alpha: 0.12),
-            borderRadius: BorderRadius.circular(12),
-            border: Border.all(color: color.withValues(alpha: 0.5)),
+      ),
+    );
+  }
+}
+
+class _MetaItem extends StatelessWidget {
+  final IconData icon;
+  final String text;
+  final Color color;
+  const _MetaItem({
+    required this.icon,
+    required this.text,
+    required this.color,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return ConstrainedBox(
+      constraints: const BoxConstraints(maxWidth: 260),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(icon, size: 18, color: color),
+          const SizedBox(width: 4),
+          Flexible(
+            child: Text(
+              text,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: TextStyle(fontSize: 13, color: color),
+            ),
           ),
-          child: Text(
-            label,
-            style: TextStyle(fontSize: 12, fontWeight: FontWeight.w700, color: color),
-          ),
-        ),
-        onTap: onTap,
+        ],
       ),
     );
   }

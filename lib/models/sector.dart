@@ -1,9 +1,7 @@
-import 'epi_map_helpers.dart';
-
 class Sector {
   final int idSector;
   final String nombreSector;
-  final String? comuna;
+  final String comuna;
   final double? latitudCentroide;
   final double? longitudCentroide;
   final bool activo;
@@ -11,7 +9,7 @@ class Sector {
   const Sector({
     required this.idSector,
     required this.nombreSector,
-    this.comuna,
+    required this.comuna,
     this.latitudCentroide,
     this.longitudCentroide,
     this.activo = true,
@@ -25,11 +23,22 @@ class Sector {
     return double.tryParse(v.toString());
   }
 
+  /// Mapeo 1:1 con columnas de `public.sectores` (PostgREST).
   factory Sector.fromMap(Map<String, dynamic> m) {
+    final idRaw = m['id_sector'];
+    if (idRaw == null) {
+      throw FormatException('Sector.fromMap: falta id_sector en $m');
+    }
+    final idSector = idRaw is int
+        ? idRaw
+        : idRaw is num
+            ? idRaw.toInt()
+            : int.parse(idRaw.toString());
+
     return Sector(
-      idSector: intOf(m['id_sector'])!,
-      nombreSector: (m['nombre_sector'] ?? '').toString(),
-      comuna: m['comuna']?.toString(),
+      idSector: idSector,
+      nombreSector: m['nombre_sector']?.toString() ?? '',
+      comuna: m['comuna']?.toString() ?? '',
       latitudCentroide: _toDouble(m['latitud_centroide']),
       longitudCentroide: _toDouble(m['longitud_centroide']),
       activo: m['activo'] == true || m['activo'] == 1,

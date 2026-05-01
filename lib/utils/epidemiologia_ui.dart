@@ -74,7 +74,8 @@ class EpidemiologiaUi {
         return 'Masculino';
       case 'ni':
       case 'no_informado':
-        return 'No informado';
+      case 'no_informa':
+        return 'No informa';
       default:
         if (s.isEmpty) return '—';
         return (genero ?? '—');

@@ -2,9 +2,9 @@ import 'package:flutter/material.dart';
 
 import '../services/network_service.dart';
 import 'home_screen.dart';
-import 'menu_registrar_screen.dart';
 import 'ver_screen.dart';
 import 'perfil_screen.dart';
+import 'nuevo_caso_screen.dart';
 
 class MainShell extends StatefulWidget {
   const MainShell({super.key});
@@ -23,7 +23,7 @@ class _MainShellState extends State<MainShell> {
     super.initState();
     _pages = [
       HomeScreen(onGoToTab: (i) => setState(() => _index = i)),
-      const MenuRegistrarScreen(),
+      const NuevoCasoScreen(), // TODO(epi): tab Registrar ahora es nuevo caso
       const VerScreen(),
       const PerfilScreen(),
     ];
@@ -89,7 +89,7 @@ class _MainShellState extends State<MainShell> {
               BottomNavigationBarItem(
                 icon: Icon(Icons.edit_note_outlined),
                 activeIcon: Icon(Icons.edit_note),
-                label: 'Registrar',
+                label: 'Nuevo caso',
               ),
               BottomNavigationBarItem(
                 icon: Icon(Icons.search_outlined),

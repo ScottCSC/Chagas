@@ -1,7 +1,9 @@
+import 'package:flutter/foundation.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../../models/caso_epidemiologico.dart';
 import '../../models/historial_estado_caso.dart';
+import '../../utils/epi_db_constants.dart';
 import '../caso_epidemiologico_repository.dart';
 
 class CasoEpidemiologicoRepositorySupabase implements CasoEpidemiologicoRepository {
@@ -35,10 +37,26 @@ class CasoEpidemiologicoRepositorySupabase implements CasoEpidemiologicoReposito
     if (uid == null) {
       throw StateError('Usuario no autenticado; no se puede crear el caso.');
     }
+    final idSector = caso.idSector;
+    if (idSector == null) {
+      throw StateError('id_sector es obligatorio para crear el caso.');
+    }
+
     final payload = caso.toInsertMap();
     payload['creado_por'] = uid;
     payload.remove('codigo_caso');
-    payload.putIfAbsent('contacto_disponible', () => false);
+    payload['id_sector'] = idSector;
+
+    final contacto = caso.contactoDisponible ?? false;
+    payload['contacto_disponible'] = contacto;
+    final safeTipoContacto = EpiTipoContacto.safe(
+      caso.tipoContacto,
+      contactoDisponible: contacto,
+    );
+    payload['tipo_contacto'] = safeTipoContacto;
+
+    debugPrint('Payload insert casos_epidemiologicos: $payload');
+
     final res = await _sb.from('casos_epidemiologicos').insert(payload).select().single();
     return CasoEpidemiologico.fromMap(Map<String, dynamic>.from(res));
   }
@@ -48,6 +66,14 @@ class CasoEpidemiologicoRepositorySupabase implements CasoEpidemiologicoReposito
     final id = caso.idCaso;
     if (id == null) throw ArgumentError('idCaso requerido para actualizar');
     final payload = caso.toUpdateMap();
+    if (payload.containsKey('tipo_contacto') ||
+        payload.containsKey('contacto_disponible')) {
+      final contacto = caso.contactoDisponible ?? false;
+      payload['tipo_contacto'] = EpiTipoContacto.safe(
+        caso.tipoContacto,
+        contactoDisponible: contacto,
+      );
+    }
     await _sb.from('casos_epidemiologicos').update(payload).eq('id_caso', id);
   }
 

@@ -10,7 +10,9 @@ class SectorRepositorySupabase implements SectorRepository {
   Future<List<Sector>> getSectoresActivos({int limit = 500}) async {
     final res = await _sb
         .from('sectores')
-        .select()
+        .select(
+          'id_sector, nombre_sector, comuna, latitud_centroide, longitud_centroide, activo',
+        )
         .eq('activo', true)
         .order('nombre_sector')
         .limit(limit)

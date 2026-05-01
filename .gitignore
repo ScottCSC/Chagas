@@ -33,6 +33,11 @@ migrate_working_dir/
 /build/
 /coverage/
 
+# Android / Gradle (generated)
+**/.gradle/
+**/build/
+**/.cxx/
+
 # Symbolication related
 app.*.symbols
 

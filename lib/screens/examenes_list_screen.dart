@@ -234,7 +234,6 @@ class _ExamenesListScreenState extends State<ExamenesListScreen> {
                               final nombre = (persona['nombre'] ?? 'Sin nombre').toString();
                               final rut = (persona['rut'] ?? '-').toString();
                               final tipo = (r.tipoExamen ?? '—').toString();
-                              final resultado = (r.resultado ?? 'Pendiente').toString();
                               final fechaStr = (r.fechaExamen ?? '—').toString();
                               final laboratorio = (r.laboratorio ?? '').toString();
                               final observacion = (r.observacion ?? '').toString();
@@ -330,7 +329,7 @@ class _ExamenesListScreenState extends State<ExamenesListScreen> {
                                               HapticFeedback.selectionClick();
                                               await _marcarExamenRealizado(
                                                 context,
-                                                idExamen!,
+                                                idExamen,
                                                 () async {
                                                   await cargarRegistros();
                                                   if (mounted) setState(() {});

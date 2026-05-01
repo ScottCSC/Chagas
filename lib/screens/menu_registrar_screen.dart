@@ -1,9 +1,8 @@
 import 'package:flutter/material.dart';
 
 import '../utils/nav.dart';
-import 'detalle_persona_screen.dart';
 import 'grupos_list_screen.dart';
-import 'registro_paciente_wizard_screen.dart';
+import 'nuevo_caso_screen.dart';
 
 class MenuRegistrarScreen extends StatelessWidget {
   const MenuRegistrarScreen({super.key});
@@ -22,32 +21,42 @@ class MenuRegistrarScreen extends StatelessWidget {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
+            // TODO(epi): menú antiguo se oculta; mantener mientras migramos backend.
             _ActionCard(
-              title: '+ Nuevo paciente',
-              subtitle: 'Registrar paciente + módulos',
+              title: '+ Nuevo caso',
+              subtitle: 'Registro epidemiológico anónimo',
+              icon: Icons.add_circle_outline,
+              iconColor: Theme.of(context).colorScheme.primary,
+              backgroundColor: Theme.of(context).colorScheme.primaryContainer,
+              onTap: () => pushSharedAxis(context, const NuevoCasoScreen()),
+            ),
+            const SizedBox(height: 12),
+            _ActionCard(
+              title: '+ Nuevo paciente (oculto)',
+              subtitle: 'TODO(epi): flujo antiguo deshabilitado en navegación',
               icon: Icons.person_add_alt_1,
               iconColor: Theme.of(context).colorScheme.primary,
               backgroundColor: Theme.of(context).colorScheme.primaryContainer,
-              onTap: () async {
-                final result = await pushSharedAxis(
-                  context,
-                  const RegistroPacienteWizardScreen(),
-                );
-                if (!context.mounted) return;
-                if (result == 'registrar_otro') {
-                  await pushSharedAxis(context, const RegistroPacienteWizardScreen());
-                } else if (result is int) {
-                  await pushSharedAxis(
-                    context,
-                    DetallePersonaScreen(idPersona: result),
-                  );
-                }
-              },
+              onTap: () => showDialog<void>(
+                context: context,
+                builder: (_) => AlertDialog(
+                  title: const Text('Flujo deshabilitado'),
+                  content: const Text(
+                    'El registro de pacientes identificables está deshabilitado en esta versión epidemiológica.',
+                  ),
+                  actions: [
+                    TextButton(
+                      onPressed: () => Navigator.pop(context),
+                      child: const Text('OK'),
+                    ),
+                  ],
+                ),
+              ),
             ),
             const SizedBox(height: 12),
             _ActionCard(
               title: 'Operativos',
-              subtitle: 'Crear/editar operativos y asignar pacientes',
+              subtitle: 'Crear/editar operativos y asignar casos',
               icon: Icons.groups,
               iconColor: Theme.of(context).colorScheme.secondary,
               backgroundColor: Theme.of(context).colorScheme.secondaryContainer,

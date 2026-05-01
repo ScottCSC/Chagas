@@ -16,7 +16,6 @@ class MapaUbicacionScreen extends StatefulWidget {
 }
 
 class _MapaUbicacionScreenState extends State<MapaUbicacionScreen> {
-  GoogleMapController? _controller;
   LatLng? _seleccionada;
 
   @override
@@ -43,7 +42,7 @@ class _MapaUbicacionScreenState extends State<MapaUbicacionScreen> {
               target: inicio,
               zoom: 15,
             ),
-            onMapCreated: (c) => _controller = c,
+            onMapCreated: (_) {},
             onTap: (pos) {
               setState(() {
                 _seleccionada = pos;
