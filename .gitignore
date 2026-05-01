@@ -1,3 +1,7 @@
+# Entorno local / secretos (no versionar)
+.env
+.env.demo
+
 # Miscellaneous
 *.class
 *.log
