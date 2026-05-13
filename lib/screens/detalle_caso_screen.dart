@@ -6,6 +6,7 @@ import '../models/historial_estado_caso.dart';
 import '../models/sector.dart';
 import '../repositories/app_repositories.dart';
 import '../utils/epidemiologia_ui.dart';
+import '../utils/responsive_layout.dart';
 
 class DetalleCasoScreen extends StatefulWidget {
   final int idCaso;
@@ -65,24 +66,6 @@ class _DetalleCasoScreenState extends State<DetalleCasoScreen> {
     return '${l.day.toString().padLeft(2, '0')}/${l.month.toString().padLeft(2, '0')}/${l.year}';
   }
 
-  String _tipoContactoLabel(String? t) {
-    switch ((t ?? '').toLowerCase()) {
-      case 'paciente':
-        return 'Paciente';
-      case 'familiar':
-        return 'Familiar';
-      case 'cuidador':
-        return 'Cuidador';
-      case 'otro':
-        return 'Otro';
-      case 'no_informa':
-      case '':
-        return 'No informa';
-      default:
-        return t ?? '';
-    }
-  }
-
   Widget _detalleEstadoChip(String? estadoRaw) {
     final k = EpidemiologiaUi.claveEstadoCaso(estadoRaw);
     final color = EpidemiologiaUi.getEstadoCasoColor(k);
@@ -122,39 +105,98 @@ class _DetalleCasoScreenState extends State<DetalleCasoScreen> {
     }
     final caso = _caso!;
 
-    return DefaultTabController(
-      length: 3,
-      child: Scaffold(
-        appBar: AppBar(
-          title: Text(caso.codigoCaso ?? 'Caso #${caso.idCaso}'),
-          actions: [
-            Padding(
-              padding: const EdgeInsets.only(right: 12),
-              child: Center(child: _detalleEstadoChip(caso.estadoActual)),
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final wide = constraints.maxWidth >= kDesktopBreakpoint;
+
+        if (!wide) {
+          return DefaultTabController(
+            length: 3,
+            child: Scaffold(
+              appBar: AppBar(
+                title: Text(caso.codigoCaso ?? 'Caso #${caso.idCaso}'),
+                actions: [
+                  Padding(
+                    padding: const EdgeInsets.only(right: 12),
+                    child: Center(child: _detalleEstadoChip(caso.estadoActual)),
+                  ),
+                ],
+                bottom: const TabBar(
+                  tabs: [
+                    Tab(text: 'Resumen'),
+                    Tab(text: 'Ubicación'),
+                    Tab(text: 'Observación'),
+                  ],
+                ),
+              ),
+              body: TabBarView(
+                children: [
+                  _ResumenTab(
+                    caso: caso,
+                    fmtFecha: _fmtFecha,
+                    estadoChipBuilder: _detalleEstadoChip,
+                    historial: _historial,
+                  ),
+                  _UbicacionTab(sector: _sector),
+                  _ObservacionTab(observacion: caso.observacionGeneral),
+                ],
+              ),
             ),
-          ],
-          bottom: const TabBar(
-            tabs: [
-              Tab(text: 'Resumen'),
-              Tab(text: 'Ubicación'),
-              Tab(text: 'Observación'),
+          );
+        }
+
+        return Scaffold(
+          appBar: AppBar(
+            title: Text(caso.codigoCaso ?? 'Caso #${caso.idCaso}'),
+            actions: [
+              Padding(
+                padding: const EdgeInsets.only(right: 12),
+                child: Center(child: _detalleEstadoChip(caso.estadoActual)),
+              ),
             ],
           ),
-        ),
-        body: TabBarView(
-          children: [
-            _ResumenTab(
-              caso: caso,
-              fmtFecha: _fmtFecha,
-              tipoContactoLabel: _tipoContactoLabel,
-              estadoChipBuilder: _detalleEstadoChip,
-              historial: _historial,
+          body: Align(
+            alignment: Alignment.topCenter,
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: kContentMaxWidth),
+              child: SingleChildScrollView(
+                padding: const EdgeInsets.all(20),
+                child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Expanded(
+                      child: _ResumenTab(
+                        caso: caso,
+                        fmtFecha: _fmtFecha,
+                        estadoChipBuilder: _detalleEstadoChip,
+                        historial: _historial,
+                        compactScroll: true,
+                      ),
+                    ),
+                    const SizedBox(width: 20),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.stretch,
+                        children: [
+                          _UbicacionTab(
+                            sector: _sector,
+                            compactScroll: true,
+                          ),
+                          const SizedBox(height: 16),
+                          _ObservacionTab(
+                            observacion: caso.observacionGeneral,
+                            compactScroll: true,
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+              ),
             ),
-            _UbicacionTab(sector: _sector),
-            _ObservacionTab(observacion: caso.observacionGeneral),
-          ],
-        ),
-      ),
+          ),
+        );
+      },
     );
   }
 }
@@ -276,21 +318,25 @@ Widget _detailEstadoRow({
 class _ResumenTab extends StatelessWidget {
   final CasoEpidemiologico caso;
   final String Function(DateTime?) fmtFecha;
-  final String Function(String?) tipoContactoLabel;
   final Widget Function(String?) estadoChipBuilder;
   final List<HistorialEstadoCaso> historial;
+  final bool compactScroll;
 
   const _ResumenTab({
     required this.caso,
     required this.fmtFecha,
-    required this.tipoContactoLabel,
     required this.estadoChipBuilder,
     required this.historial,
+    this.compactScroll = false,
   });
 
   @override
   Widget build(BuildContext context) {
     return ListView(
+      shrinkWrap: compactScroll,
+      physics: compactScroll
+          ? const NeverScrollableScrollPhysics()
+          : null,
       padding: const EdgeInsets.all(16),
       children: [
         _detailSectionCard(
@@ -333,22 +379,10 @@ class _ResumenTab extends StatelessWidget {
               label: 'Ocupación',
               value: (caso.ocupacion ?? '').trim(),
             ),
-          ],
-        ),
-        const SizedBox(height: 14),
-        _detailSectionCard(
-          title: 'Contacto',
-          icon: Icons.contact_mail_outlined,
-          children: [
             _detailInfoRow(
-              icon: Icons.toggle_on_outlined,
-              label: 'Disponible',
-              value: (caso.contactoDisponible == true) ? 'Sí' : 'No',
-            ),
-            _detailInfoRow(
-              icon: Icons.category_outlined,
-              label: 'Tipo',
-              value: tipoContactoLabel(caso.tipoContacto),
+              icon: Icons.group_outlined,
+              label: 'Número de contactos',
+              value: caso.numeroContactos != null ? '${caso.numeroContactos}' : '',
             ),
           ],
         ),
@@ -411,8 +445,12 @@ class _ResumenTab extends StatelessWidget {
 
 class _UbicacionTab extends StatelessWidget {
   final Sector? sector;
+  final bool compactScroll;
 
-  const _UbicacionTab({required this.sector});
+  const _UbicacionTab({
+    required this.sector,
+    this.compactScroll = false,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -420,6 +458,10 @@ class _UbicacionTab extends StatelessWidget {
     final s = sector;
 
     return ListView(
+      shrinkWrap: compactScroll,
+      physics: compactScroll
+          ? const NeverScrollableScrollPhysics()
+          : null,
       padding: const EdgeInsets.all(16),
       children: [
         _detailSectionCard(
@@ -483,7 +525,12 @@ class _UbicacionTab extends StatelessWidget {
 
 class _ObservacionTab extends StatelessWidget {
   final String? observacion;
-  const _ObservacionTab({required this.observacion});
+  final bool compactScroll;
+
+  const _ObservacionTab({
+    required this.observacion,
+    this.compactScroll = false,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -491,6 +538,10 @@ class _ObservacionTab extends StatelessWidget {
     final hasContent = observacion != null && observacion!.trim().isNotEmpty;
 
     return ListView(
+      shrinkWrap: compactScroll,
+      physics: compactScroll
+          ? const NeverScrollableScrollPhysics()
+          : null,
       padding: const EdgeInsets.all(16),
       children: [
         _detailSectionCard(

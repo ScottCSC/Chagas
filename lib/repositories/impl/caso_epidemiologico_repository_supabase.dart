@@ -3,7 +3,6 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../../models/caso_epidemiologico.dart';
 import '../../models/historial_estado_caso.dart';
-import '../../utils/epi_db_constants.dart';
 import '../caso_epidemiologico_repository.dart';
 
 class CasoEpidemiologicoRepositorySupabase implements CasoEpidemiologicoRepository {
@@ -47,14 +46,6 @@ class CasoEpidemiologicoRepositorySupabase implements CasoEpidemiologicoReposito
     payload.remove('codigo_caso');
     payload['id_sector'] = idSector;
 
-    final contacto = caso.contactoDisponible ?? false;
-    payload['contacto_disponible'] = contacto;
-    final safeTipoContacto = EpiTipoContacto.safe(
-      caso.tipoContacto,
-      contactoDisponible: contacto,
-    );
-    payload['tipo_contacto'] = safeTipoContacto;
-
     debugPrint('Payload insert casos_epidemiologicos: $payload');
 
     final res = await _sb.from('casos_epidemiologicos').insert(payload).select().single();
@@ -66,14 +57,6 @@ class CasoEpidemiologicoRepositorySupabase implements CasoEpidemiologicoReposito
     final id = caso.idCaso;
     if (id == null) throw ArgumentError('idCaso requerido para actualizar');
     final payload = caso.toUpdateMap();
-    if (payload.containsKey('tipo_contacto') ||
-        payload.containsKey('contacto_disponible')) {
-      final contacto = caso.contactoDisponible ?? false;
-      payload['tipo_contacto'] = EpiTipoContacto.safe(
-        caso.tipoContacto,
-        contactoDisponible: contacto,
-      );
-    }
     await _sb.from('casos_epidemiologicos').update(payload).eq('id_caso', id);
   }
 

@@ -9,8 +9,7 @@ class CasoEpidemiologico {
   final int? idSector;
   final String? ocupacion;
   final String? estadoActual;
-  final bool? contactoDisponible;
-  final String? tipoContacto;
+  final int? numeroContactos;
   final String? observacionGeneral;
   final String? creadoPor;
   final DateTime? creadoEn;
@@ -25,8 +24,7 @@ class CasoEpidemiologico {
     this.idSector,
     this.ocupacion,
     this.estadoActual,
-    this.contactoDisponible,
-    this.tipoContacto,
+    this.numeroContactos,
     this.observacionGeneral,
     this.creadoPor,
     this.creadoEn,
@@ -43,10 +41,7 @@ class CasoEpidemiologico {
       idSector: intOf(m['id_sector']),
       ocupacion: m['ocupacion']?.toString(),
       estadoActual: m['estado_actual']?.toString(),
-      contactoDisponible: m['contacto_disponible'] is bool
-          ? m['contacto_disponible'] as bool
-          : (m['contacto_disponible'] == true || m['contacto_disponible'] == 1),
-      tipoContacto: m['tipo_contacto']?.toString(),
+      numeroContactos: intOf(m['numero_contactos']),
       observacionGeneral: m['observacion_general']?.toString(),
       creadoPor: m['creado_por']?.toString(),
       creadoEn: parseDateTime(m['creado_en']),
@@ -63,8 +58,7 @@ class CasoEpidemiologico {
     if (idSector != null) m['id_sector'] = idSector;
     if (ocupacion != null && ocupacion!.trim().isNotEmpty) m['ocupacion'] = ocupacion!.trim();
     if (estadoActual != null) m['estado_actual'] = estadoActual;
-    if (contactoDisponible != null) m['contacto_disponible'] = contactoDisponible;
-    if (tipoContacto != null && tipoContacto!.isNotEmpty) m['tipo_contacto'] = tipoContacto;
+    if (numeroContactos != null) m['numero_contactos'] = numeroContactos;
     if (observacionGeneral != null && observacionGeneral!.trim().isNotEmpty) {
       m['observacion_general'] = observacionGeneral!.trim();
     }

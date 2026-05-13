@@ -11,7 +11,7 @@ String? validatorCorreo(String? value) {
 }
 
 /// Form reutilizable: dirección (OSM + GPS), teléfono y correo.
-/// Usado en Crear Persona, Editar Persona y Wizard Nuevo Paciente.
+/// Datos de contacto / ubicación (flujo alta persona en operativos).
 class ContactoUbicacionForm extends StatelessWidget {
   final TextEditingController direccionCtrl;
   final TextEditingController comunaCtrl;

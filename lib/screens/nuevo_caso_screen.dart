@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:google_fonts/google_fonts.dart';
 
 import '../models/caso_epidemiologico.dart';
 import '../models/sector.dart';
@@ -7,9 +8,27 @@ import '../repositories/app_repositories.dart';
 import '../utils/epi_db_constants.dart';
 import '../utils/epidemiologia_ui.dart';
 import '../utils/nav.dart';
+import '../utils/responsive_layout.dart';
 import '../utils/toast.dart';
 import '../widgets/save_button.dart';
 import 'detalle_caso_screen.dart';
+
+/// Tokens alineados al sistema visual Chagas Tracker / Figma (login, home).
+class _RegistroTokens {
+  static const Color bg = Color(0xFFFCF8FF);
+  static const Color royalBlue = Color(0xFF493EE5);
+  static const Color cta = Color(0xFF635BFF);
+  static const Color shark = Color(0xFF1B1B24);
+  static const Color gunPowder = Color(0xFF464555);
+  static const Color blueHaze = Color(0xFFC7C4D8);
+  static const Color paleSky = Color(0xFF6B7280);
+  static const Color cardSurface = Color(0xFFFFFFFF);
+  static const Color privacyFill = Color(0xFFF5F2FF);
+
+  static const Color estadoNuevo = Color(0xFF1565C0);
+  static const Color estadoReingreso = Color(0xFFE65100);
+  static const Color estadoTratado = Color(0xFF2E7D32);
+}
 
 class NuevoCasoScreen extends StatefulWidget {
   const NuevoCasoScreen({super.key});
@@ -25,14 +44,13 @@ class _NuevoCasoScreenState extends State<NuevoCasoScreen> {
 
   final _edadCtrl = TextEditingController();
   final _ocupacionCtrl = TextEditingController();
+  final _numeroContactosCtrl = TextEditingController();
   final _obsCtrl = TextEditingController();
 
   String? _genero;
   int? _idSector;
   /// Por defecto “nuevo” para acelerar registro en campo.
   String _estadoActual = EpiEstadoCaso.nuevo;
-  bool _contactoDisponible = false;
-  String _tipoContacto = EpiTipoContacto.noInforma;
 
   List<Sector> _sectores = [];
   bool _cargandoSectores = true;
@@ -51,14 +69,6 @@ class _NuevoCasoScreenState extends State<NuevoCasoScreen> {
     {'label': 'Tratado', 'value': EpiEstadoCaso.tratado},
   ];
 
-  /// Opciones cuando hay contacto disponible (excluye `no_informa`).
-  static const _tipoContactoOptions = [
-    {'label': 'Paciente', 'value': EpiTipoContacto.paciente},
-    {'label': 'Familiar', 'value': EpiTipoContacto.familiar},
-    {'label': 'Cuidador', 'value': EpiTipoContacto.cuidador},
-    {'label': 'Otro', 'value': EpiTipoContacto.otro},
-  ];
-
   @override
   void initState() {
     super.initState();
@@ -69,6 +79,7 @@ class _NuevoCasoScreenState extends State<NuevoCasoScreen> {
   void dispose() {
     _edadCtrl.dispose();
     _ocupacionCtrl.dispose();
+    _numeroContactosCtrl.dispose();
     _obsCtrl.dispose();
     super.dispose();
   }
@@ -105,7 +116,17 @@ class _NuevoCasoScreenState extends State<NuevoCasoScreen> {
     if (t.isEmpty) return null;
     final n = int.tryParse(t);
     if (n == null) return 'Ingresa un número válido';
-    if (n < 0 || n > 120) return 'Entre 0 y 120';
+    if (n < 0 || n > 120) return 'La edad debe estar entre 0 y 120';
+    return null;
+  }
+
+  String? _validarNumeroContactos(String? v) {
+    final t = v?.trim() ?? '';
+    if (t.isEmpty) return null;
+    final n = int.tryParse(t);
+    if (n == null) return 'Ingresa un número válido';
+    if (n < 0) return 'Debe ser 0 o mayor';
+    if (n > 999) return 'Máximo 999';
     return null;
   }
 
@@ -121,18 +142,6 @@ class _NuevoCasoScreenState extends State<NuevoCasoScreen> {
     return 'No se pudo guardar: $e';
   }
 
-  void _onContactoDisponibleChanged(bool value) {
-    setState(() {
-      _contactoDisponible = value;
-      if (!value) {
-        _tipoContacto = EpiTipoContacto.noInforma;
-      } else if (_tipoContacto == EpiTipoContacto.noInforma ||
-          !EpiTipoContacto.validos.contains(_tipoContacto)) {
-        _tipoContacto = EpiTipoContacto.paciente;
-      }
-    });
-  }
-
   bool get _puedeGuardar =>
       !_guardando && !_cargandoSectores && _sectores.isNotEmpty;
 
@@ -141,7 +150,7 @@ class _NuevoCasoScreenState extends State<NuevoCasoScreen> {
     if (!_formKey.currentState!.validate()) return;
 
     if (_idSector == null) {
-      showErr(context, 'Seleccione un sector.');
+      showErr(context, 'Seleccione un sector territorial.');
       return;
     }
 
@@ -153,11 +162,8 @@ class _NuevoCasoScreenState extends State<NuevoCasoScreen> {
       final edadT = _edadCtrl.text.trim();
       final edad = edadT.isEmpty ? null : int.parse(edadT);
       final oc = _ocupacionCtrl.text.trim();
-
-      final tipoEnvio = EpiTipoContacto.safe(
-        _tipoContacto,
-        contactoDisponible: _contactoDisponible,
-      );
+      final nContactosT = _numeroContactosCtrl.text.trim();
+      final numeroContactos = nContactosT.isEmpty ? null : int.parse(nContactosT);
 
       final caso = CasoEpidemiologico(
         genero: _genero,
@@ -165,8 +171,7 @@ class _NuevoCasoScreenState extends State<NuevoCasoScreen> {
         idSector: _idSector,
         ocupacion: oc.isEmpty ? null : oc,
         estadoActual: _estadoActual,
-        contactoDisponible: _contactoDisponible,
-        tipoContacto: tipoEnvio,
+        numeroContactos: numeroContactos,
         observacionGeneral:
             _obsCtrl.text.trim().isEmpty ? null : _obsCtrl.text.trim(),
       );
@@ -198,231 +203,431 @@ class _NuevoCasoScreenState extends State<NuevoCasoScreen> {
     }
   }
 
-  Widget _sectionCard({
-    required String title,
-    required IconData icon,
-    required List<Widget> children,
+  InputDecoration _fieldDecoration({
+    required String label,
+    String? hint,
+    String? helper,
+    Widget? prefix,
+    IconData? prefixIcon,
   }) {
-    return Card(
-      elevation: 1,
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(18),
+    return InputDecoration(
+      labelText: label,
+      hintText: hint,
+      helperText: helper,
+      filled: true,
+      fillColor: _RegistroTokens.cardSurface,
+      contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+      border: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(8),
+        borderSide: const BorderSide(color: _RegistroTokens.blueHaze),
       ),
-      child: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              children: [
-                Icon(icon, size: 22),
-                const SizedBox(width: 8),
-                Expanded(
-                  child: Text(
-                    title,
-                    style: const TextStyle(
-                      fontSize: 17,
-                      fontWeight: FontWeight.w700,
-                    ),
-                  ),
-                ),
-              ],
-            ),
-            const SizedBox(height: 16),
-            ...children,
-          ],
-        ),
+      enabledBorder: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(8),
+        borderSide: const BorderSide(color: _RegistroTokens.blueHaze),
       ),
+      focusedBorder: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(8),
+        borderSide: const BorderSide(color: _RegistroTokens.royalBlue, width: 1.5),
+      ),
+      labelStyle: GoogleFonts.inter(
+        fontSize: 14,
+        fontWeight: FontWeight.w600,
+        color: _RegistroTokens.shark,
+      ),
+      hintStyle: GoogleFonts.inter(
+        fontSize: 16,
+        color: _RegistroTokens.paleSky,
+      ),
+      helperStyle: GoogleFonts.inter(
+        fontSize: 12,
+        height: 1.35,
+        color: _RegistroTokens.gunPowder,
+      ),
+      prefixIcon: prefix ?? (prefixIcon != null ? Icon(prefixIcon, size: 22, color: _RegistroTokens.paleSky) : null),
     );
   }
 
   @override
   Widget build(BuildContext context) {
     final bottomInset = MediaQuery.paddingOf(context).bottom;
+    final screenWide = MediaQuery.sizeOf(context).width >= 720;
 
     return Scaffold(
-      appBar: AppBar(title: const Text('Nuevo caso')),
+      backgroundColor: _RegistroTokens.bg,
+      appBar: AppBar(
+        backgroundColor: _RegistroTokens.bg,
+        elevation: 0,
+        scrolledUnderElevation: 0,
+        leading: IconButton(
+          icon: Icon(Icons.arrow_back_ios_new_rounded,
+              color: _RegistroTokens.shark.withValues(alpha: 0.85), size: 20),
+          onPressed: () => Navigator.maybePop(context),
+        ),
+        title: Text(
+          'Nuevo caso',
+          style: GoogleFonts.publicSans(
+            fontSize: 20,
+            fontWeight: FontWeight.w700,
+            color: _RegistroTokens.royalBlue,
+          ),
+        ),
+        centerTitle: false,
+      ),
       body: SafeArea(
         bottom: false,
-        child: Form(
-          key: _formKey,
-          child: ListView(
-            padding: EdgeInsets.fromLTRB(16, 16, 16, 88 + bottomInset),
-            children: [
-              _buildBannerAnonimo(context),
-              const SizedBox(height: 16),
-
-              _sectionCard(
-                title: 'Datos del caso',
-                icon: Icons.assignment_outlined,
+        child: Align(
+          alignment: Alignment.topCenter,
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: kFormMaxWidth),
+            child: Form(
+              key: _formKey,
+              child: ListView(
+                padding: EdgeInsets.fromLTRB(16, 8, 16, 100 + bottomInset),
                 children: [
-                  Row(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Expanded(child: _buildGeneroDropdown()),
-                      const SizedBox(width: 12),
-                      Expanded(child: _buildEdadField()),
-                    ],
+                  Text(
+                    'Registro epidemiológico anónimo',
+                    style: GoogleFonts.inter(
+                      fontSize: 15,
+                      height: 22 / 15,
+                      color: _RegistroTokens.gunPowder,
+                    ),
                   ),
                   const SizedBox(height: 16),
-                  _buildEstadoSegmentado(),
-                ],
-              ),
-              const SizedBox(height: 16),
+                  const _PrivacyNoticeCard(),
+                  const SizedBox(height: 20),
 
-              _sectionCard(
-                title: 'Ubicación territorial',
-                icon: Icons.map_outlined,
-                children: [
-                  _buildSectorDropdown(context),
-                ],
-              ),
-              const SizedBox(height: 16),
-
-              _sectionCard(
-                title: 'Información adicional',
-                icon: Icons.info_outline,
-                children: [
-                  _buildOcupacionField(),
-                  const SizedBox(height: 4),
-                  _buildContactoSwitch(),
-                  if (_contactoDisponible) ...[
-                    const SizedBox(height: 12),
-                    _buildTipoContactoDropdown(),
+                  _SectionCard(
+                    icon: Icons.assignment_outlined,
+                    title: 'Datos del caso',
+                    child: screenWide
+                        ? Row(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Expanded(
+                                flex: 2,
+                                child: Column(
+                                  crossAxisAlignment:
+                                      CrossAxisAlignment.stretch,
+                                  children: [
+                                    Text(
+                                      'Género',
+                                      style: GoogleFonts.inter(
+                                        fontSize: 14,
+                                        fontWeight: FontWeight.w600,
+                                        color: _RegistroTokens.shark,
+                                      ),
+                                    ),
+                                    const SizedBox(height: 8),
+                                    DropdownButtonFormField<String>(
+                                      key: ValueKey<String?>(_genero),
+                                      initialValue: _genero,
+                                      isExpanded: true,
+                                      decoration: _fieldDecoration(
+                                        label: 'Seleccionar género *',
+                                        prefixIcon: Icons.wc_rounded,
+                                      ),
+                                      items: _generoOptions
+                                          .map(
+                                            (o) => DropdownMenuItem<String>(
+                                              value: o['value']!,
+                                              child: Text(
+                                                o['label']!,
+                                                overflow:
+                                                    TextOverflow.ellipsis,
+                                                style: GoogleFonts.inter(
+                                                    fontSize: 16),
+                                              ),
+                                            ),
+                                          )
+                                          .toList(),
+                                      onChanged: (v) =>
+                                          setState(() => _genero = v),
+                                      validator: (v) => (v == null ||
+                                              v.isEmpty)
+                                          ? 'Seleccione género'
+                                          : null,
+                                    ),
+                                  ],
+                                ),
+                              ),
+                              const SizedBox(width: 16),
+                              Expanded(
+                                child: Column(
+                                  crossAxisAlignment:
+                                      CrossAxisAlignment.stretch,
+                                  children: [
+                                    Text(
+                                      'Edad',
+                                      style: GoogleFonts.inter(
+                                        fontSize: 14,
+                                        fontWeight: FontWeight.w600,
+                                        color: _RegistroTokens.shark,
+                                      ),
+                                    ),
+                                    const SizedBox(height: 8),
+                                    TextFormField(
+                                      controller: _edadCtrl,
+                                      keyboardType: TextInputType.number,
+                                      inputFormatters: [
+                                        FilteringTextInputFormatter
+                                            .digitsOnly
+                                      ],
+                                      maxLength: 3,
+                                      style: GoogleFonts.inter(
+                                        fontSize: 16,
+                                        color: _RegistroTokens.shark,
+                                      ),
+                                      decoration: _fieldDecoration(
+                                        label: 'Años (opcional)',
+                                        hint: 'Ej. 45',
+                                        prefixIcon: Icons.cake_outlined,
+                                      ).copyWith(counterText: ''),
+                                      validator: _validarEdad,
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            ],
+                          )
+                        : Column(
+                            crossAxisAlignment: CrossAxisAlignment.stretch,
+                            children: [
+                              Text(
+                                'Género',
+                                style: GoogleFonts.inter(
+                                  fontSize: 14,
+                                  fontWeight: FontWeight.w600,
+                                  color: _RegistroTokens.shark,
+                                ),
+                              ),
+                              const SizedBox(height: 8),
+                              DropdownButtonFormField<String>(
+                                key: ValueKey<String?>(_genero),
+                                initialValue: _genero,
+                                isExpanded: true,
+                                decoration: _fieldDecoration(
+                                  label: 'Seleccionar género *',
+                                  prefixIcon: Icons.wc_rounded,
+                                ),
+                                items: _generoOptions
+                                    .map(
+                                      (o) => DropdownMenuItem<String>(
+                                        value: o['value']!,
+                                        child: Text(
+                                          o['label']!,
+                                          overflow: TextOverflow.ellipsis,
+                                          style:
+                                              GoogleFonts.inter(fontSize: 16),
+                                        ),
+                                      ),
+                                    )
+                                    .toList(),
+                                onChanged: (v) => setState(() => _genero = v),
+                                validator: (v) => (v == null || v.isEmpty)
+                                    ? 'Seleccione género'
+                                    : null,
+                              ),
+                              const SizedBox(height: 16),
+                              Text(
+                                'Edad',
+                                style: GoogleFonts.inter(
+                                  fontSize: 14,
+                                  fontWeight: FontWeight.w600,
+                                  color: _RegistroTokens.shark,
+                                ),
+                              ),
+                              const SizedBox(height: 8),
+                              TextFormField(
+                                controller: _edadCtrl,
+                                keyboardType: TextInputType.number,
+                                inputFormatters: [
+                                  FilteringTextInputFormatter.digitsOnly
+                                ],
+                                maxLength: 3,
+                                style: GoogleFonts.inter(
+                                  fontSize: 16,
+                                  color: _RegistroTokens.shark,
+                                ),
+                                decoration: _fieldDecoration(
+                                  label: 'Años (opcional)',
+                                  hint: 'Ej. 45',
+                                  prefixIcon: Icons.cake_outlined,
+                                ).copyWith(counterText: ''),
+                                validator: _validarEdad,
+                              ),
+                            ],
+                          ),
+                  ),
+                  if (screenWide)
+                    Padding(
+                      padding: const EdgeInsets.only(top: 20),
+                      child: _StatusSelector(
+                        estadoActual: _estadoActual,
+                        onChanged: (v) => setState(() => _estadoActual = v),
+                        options: _estadoCasoOptions,
+                      ),
+                    )
+                  else ...[
+                    const SizedBox(height: 20),
+                    _StatusSelector(
+                      estadoActual: _estadoActual,
+                      onChanged: (v) => setState(() => _estadoActual = v),
+                      options: _estadoCasoOptions,
+                    ),
                   ],
-                  const SizedBox(height: 12),
-                  _buildObservacionField(),
+              const SizedBox(height: 16),
+
+              _SectionCard(
+                icon: Icons.map_outlined,
+                title: 'Ubicación territorial',
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    _buildSectorDropdown(),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 16),
+
+              _SectionCard(
+                icon: Icons.info_outline_rounded,
+                title: 'Información adicional',
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    Text(
+                      'Ocupación',
+                      style: GoogleFonts.inter(
+                        fontSize: 14,
+                        fontWeight: FontWeight.w600,
+                        color: _RegistroTokens.shark,
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    TextFormField(
+                      controller: _ocupacionCtrl,
+                      textCapitalization: TextCapitalization.sentences,
+                      style: GoogleFonts.inter(
+                        fontSize: 16,
+                        color: _RegistroTokens.shark,
+                      ),
+                      decoration: _fieldDecoration(
+                        label: 'Ocupación (opcional)',
+                        hint: 'Ej. agricultura, estudiante…',
+                        prefixIcon: Icons.work_outline_rounded,
+                      ),
+                    ),
+                    const SizedBox(height: 20),
+                    Text(
+                      'Número de contactos',
+                      style: GoogleFonts.inter(
+                        fontSize: 14,
+                        fontWeight: FontWeight.w600,
+                        color: _RegistroTokens.shark,
+                      ),
+                    ),
+                    const SizedBox(height: 6),
+                    Text(
+                      'Ingrese solo cantidad aproximada, no nombres ni teléfonos.',
+                      style: GoogleFonts.inter(
+                        fontSize: 12,
+                        height: 1.4,
+                        color: _RegistroTokens.gunPowder,
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    TextFormField(
+                      controller: _numeroContactosCtrl,
+                      keyboardType: TextInputType.number,
+                      inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+                      maxLength: 3,
+                      style: GoogleFonts.inter(
+                        fontSize: 16,
+                        color: _RegistroTokens.shark,
+                      ),
+                      decoration: _fieldDecoration(
+                        label: 'Cantidad (opcional)',
+                        hint: '0',
+                        prefixIcon: Icons.groups_outlined,
+                      ).copyWith(counterText: ''),
+                      validator: _validarNumeroContactos,
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 16),
+
+              _SectionCard(
+                icon: Icons.notes_rounded,
+                title: 'Observación general',
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    Text(
+                      'Opcional',
+                      style: GoogleFonts.inter(
+                        fontSize: 12,
+                        color: _RegistroTokens.paleSky,
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    TextFormField(
+                      controller: _obsCtrl,
+                      maxLines: 5,
+                      minLines: 4,
+                      textCapitalization: TextCapitalization.sentences,
+                      style: GoogleFonts.inter(
+                        fontSize: 15,
+                        height: 1.45,
+                        color: _RegistroTokens.shark,
+                      ),
+                      decoration: _fieldDecoration(
+                        label: 'Observaciones',
+                        hint:
+                            'Ingrese observaciones generales sin datos personales.',
+                        helper:
+                            'Evite nombres, RUT, teléfonos o direcciones exactas.',
+                      ).copyWith(
+                        alignLabelWithHint: true,
+                        prefixIcon: null,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
                 ],
               ),
-            ],
+            ),
           ),
         ),
       ),
       bottomNavigationBar: SafeArea(
-        minimum: const EdgeInsets.fromLTRB(16, 8, 16, 16),
-        child: SaveButton(
-          onPressed: _puedeGuardar ? _guardar : () {},
-          loading: _guardando,
-          label: 'Guardar caso',
-        ),
-      ),
-    );
-  }
-
-  // ────────────────────────────────────────────────────────
-  // Widgets de campos
-  // ────────────────────────────────────────────────────────
-
-  Widget _buildBannerAnonimo(BuildContext context) {
-    final cs = Theme.of(context).colorScheme;
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-      decoration: BoxDecoration(
-        color: cs.primaryContainer.withValues(alpha: 0.35),
-        borderRadius: BorderRadius.circular(10),
-        border: Border.all(color: cs.primary.withValues(alpha: 0.25)),
-      ),
-      child: Row(
-        children: [
-          Icon(Icons.shield_outlined, size: 18, color: cs.primary),
-          const SizedBox(width: 8),
-          Expanded(
-            child: Text(
-              'Registro anónimo · solo sector territorial',
-              style: TextStyle(
-                fontSize: 13,
-                fontWeight: FontWeight.w600,
-                color: cs.onSurface,
+        minimum: const EdgeInsets.fromLTRB(16, 10, 16, 12),
+        child: Theme(
+          data: Theme.of(context).copyWith(
+            elevatedButtonTheme: ElevatedButtonThemeData(
+              style: ElevatedButton.styleFrom(
+                backgroundColor: _RegistroTokens.cta,
+                foregroundColor: const Color(0xFFFCF8FF),
+                elevation: 0,
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                padding: const EdgeInsets.symmetric(vertical: 14),
               ),
             ),
           ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildGeneroDropdown() {
-    return DropdownButtonFormField<String>(
-      value: _genero,
-      isExpanded: true,
-      decoration: const InputDecoration(
-        labelText: 'Género *',
-        prefixIcon: Icon(Icons.person_outline),
-      ),
-      items: _generoOptions
-          .map(
-            (o) => DropdownMenuItem<String>(
-              value: o['value']!,
-              child: Text(o['label']!, overflow: TextOverflow.ellipsis),
-            ),
-          )
-          .toList(),
-      onChanged: (v) => setState(() => _genero = v),
-      validator: (v) => (v == null || v.isEmpty) ? 'Seleccione género' : null,
-    );
-  }
-
-  Widget _buildEdadField() {
-    return TextFormField(
-      controller: _edadCtrl,
-      keyboardType: TextInputType.number,
-      inputFormatters: [FilteringTextInputFormatter.digitsOnly],
-      maxLength: 3,
-      decoration: const InputDecoration(
-        labelText: 'Edad',
-        hintText: '0–120',
-        prefixIcon: Icon(Icons.cake_outlined),
-        counterText: '',
-      ),
-      validator: _validarEdad,
-    );
-  }
-
-  Widget _buildEstadoSegmentado() {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Text(
-          'Estado actual *',
-          style: TextStyle(
-            fontSize: 12,
-            fontWeight: FontWeight.w600,
-            color: Theme.of(context).colorScheme.onSurfaceVariant,
+          child: SaveButton(
+            onPressed: _puedeGuardar ? _guardar : null,
+            loading: _guardando,
+            label: 'Guardar caso',
           ),
         ),
-        const SizedBox(height: 8),
-        Wrap(
-          spacing: 8,
-          runSpacing: 8,
-          children: _estadoCasoOptions.map((o) {
-            final v = o['value']!;
-            final selected = _estadoActual == v;
-            final color = EpidemiologiaUi.getEstadoCasoColor(v);
-            return FilterChip(
-              selected: selected,
-              showCheckmark: true,
-              label: Text(o['label']!),
-              selectedColor: color.withValues(alpha: 0.18),
-              checkmarkColor: color,
-              labelStyle: TextStyle(
-                fontSize: 13,
-                fontWeight: selected ? FontWeight.w700 : FontWeight.w500,
-                color: selected ? color : Theme.of(context).colorScheme.onSurface,
-              ),
-              side: BorderSide(
-                color: selected ? color : Theme.of(context).colorScheme.outlineVariant,
-              ),
-              onSelected: (_) => setState(() => _estadoActual = v),
-            );
-          }).toList(),
-        ),
-      ],
+      ),
     );
   }
 
-  Widget _buildSectorDropdown(BuildContext context) {
-    final cs = Theme.of(context).colorScheme;
-
+  Widget _buildSectorDropdown() {
     if (_cargandoSectores) {
       return const _DropdownSkeleton(label: 'Cargando sectores…');
     }
@@ -433,16 +638,45 @@ class _NuevoCasoScreenState extends State<NuevoCasoScreen> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
+        Text(
+          'Sector',
+          style: GoogleFonts.inter(
+            fontSize: 14,
+            fontWeight: FontWeight.w600,
+            color: _RegistroTokens.shark,
+          ),
+        ),
+        const SizedBox(height: 6),
+        Text(
+          'Seleccione un sector territorial, no una dirección exacta.',
+          style: GoogleFonts.inter(
+            fontSize: 12,
+            height: 1.4,
+            color: _RegistroTokens.gunPowder,
+          ),
+        ),
+        const SizedBox(height: 8),
         DropdownButtonFormField<int>(
-          value: _idSector,
+          key: ValueKey<int?>(_idSector),
+          initialValue: _idSector,
           isExpanded: true,
-          decoration: InputDecoration(
-            labelText: 'Sector *',
-            prefixIcon: const Icon(Icons.place_outlined),
+          style: GoogleFonts.inter(fontSize: 16, color: _RegistroTokens.shark),
+          decoration: _fieldDecoration(
+            label: 'Sector territorial *',
+            prefixIcon: Icons.place_outlined,
+          ).copyWith(
             suffixIcon: IconButton(
               tooltip: 'Recargar sectores',
-              icon: const Icon(Icons.refresh, size: 20),
+              icon: Icon(Icons.refresh_rounded,
+                  size: 22, color: _RegistroTokens.paleSky),
               onPressed: _cargandoSectores ? null : _cargarSectores,
+            ),
+          ),
+          hint: Text(
+            'Seleccionar sector',
+            style: GoogleFonts.inter(
+              fontSize: 16,
+              color: _RegistroTokens.paleSky,
             ),
           ),
           items: _sectores
@@ -471,27 +705,29 @@ class _NuevoCasoScreenState extends State<NuevoCasoScreen> {
           },
         ),
         if (sinSectores) ...[
-          const SizedBox(height: 8),
+          const SizedBox(height: 10),
           Container(
-            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
             decoration: BoxDecoration(
-              color: cs.errorContainer.withValues(alpha: 0.45),
+              color: Theme.of(context).colorScheme.errorContainer.withValues(alpha: 0.35),
               borderRadius: BorderRadius.circular(8),
             ),
             child: Row(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Icon(Icons.warning_amber_rounded,
-                    size: 18, color: cs.onErrorContainer),
-                const SizedBox(width: 8),
+                    size: 20,
+                    color: Theme.of(context).colorScheme.onErrorContainer),
+                const SizedBox(width: 10),
                 Expanded(
                   child: Text(
                     huboError
                         ? 'No se pudieron cargar los sectores. Revisa tu conexión.'
-                        : 'No hay sectores activos disponibles',
-                    style: TextStyle(
+                        : 'No hay sectores activos disponibles.',
+                    style: GoogleFonts.inter(
                       fontSize: 13,
-                      color: cs.onErrorContainer,
+                      height: 1.35,
+                      color: Theme.of(context).colorScheme.onErrorContainer,
                     ),
                   ),
                 ),
@@ -506,66 +742,206 @@ class _NuevoCasoScreenState extends State<NuevoCasoScreen> {
       ],
     );
   }
+}
 
-  Widget _buildOcupacionField() {
-    return TextFormField(
-      controller: _ocupacionCtrl,
-      textCapitalization: TextCapitalization.sentences,
-      decoration: const InputDecoration(
-        labelText: 'Ocupación (opcional)',
-        prefixIcon: Icon(Icons.work_outline),
-      ),
-    );
-  }
+// ─────────────────────────────────────────────────────────────────────────────
+// Widgets de UI
+// ─────────────────────────────────────────────────────────────────────────────
 
-  Widget _buildContactoSwitch() {
-    return SwitchListTile.adaptive(
-      contentPadding: EdgeInsets.zero,
-      title: const Text(
-        'Contacto disponible',
-        style: TextStyle(fontWeight: FontWeight.w600),
-      ),
-      subtitle: const Text(
-        'Indica si el equipo cuenta con un canal de contacto. No registrar el dato aquí.',
-        style: TextStyle(fontSize: 12),
-      ),
-      value: _contactoDisponible,
-      onChanged: _onContactoDisponibleChanged,
-    );
-  }
+class _PrivacyNoticeCard extends StatelessWidget {
+  const _PrivacyNoticeCard();
 
-  Widget _buildTipoContactoDropdown() {
-    return DropdownButtonFormField<String>(
-      value: _tipoContacto,
-      isExpanded: true,
-      decoration: const InputDecoration(
-        labelText: 'Tipo de contacto',
-        prefixIcon: Icon(Icons.contact_mail_outlined),
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: _RegistroTokens.privacyFill,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: _RegistroTokens.blueHaze),
       ),
-      items: _tipoContactoOptions
-          .map(
-            (o) => DropdownMenuItem<String>(
-              value: o['value']!,
-              child: Text(o['label']!, overflow: TextOverflow.ellipsis),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Icon(Icons.shield_outlined,
+              size: 22, color: _RegistroTokens.royalBlue),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Text(
+              'Registro anónimo: no ingresar nombres, RUT, teléfonos ni direcciones exactas.',
+              style: GoogleFonts.inter(
+                fontSize: 13,
+                height: 1.4,
+                fontWeight: FontWeight.w500,
+                color: _RegistroTokens.shark,
+              ),
             ),
-          )
-          .toList(),
-      onChanged: (v) =>
-          setState(() => _tipoContacto = v ?? EpiTipoContacto.noInforma),
+          ),
+        ],
+      ),
     );
   }
+}
 
-  Widget _buildObservacionField() {
-    return TextFormField(
-      controller: _obsCtrl,
-      maxLines: 4,
-      minLines: 3,
-      textCapitalization: TextCapitalization.sentences,
-      decoration: const InputDecoration(
-        labelText: 'Observación general (opcional)',
-        helperText: 'No ingresar datos personales.',
-        alignLabelWithHint: true,
-        hintText: 'Síntomas, antecedentes, contexto…',
+class _SectionCard extends StatelessWidget {
+  final IconData icon;
+  final String title;
+  final Widget child;
+
+  const _SectionCard({
+    required this.icon,
+    required this.title,
+    required this.child,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: double.infinity,
+      decoration: BoxDecoration(
+        color: _RegistroTokens.cardSurface,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: _RegistroTokens.blueHaze),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.04),
+            offset: const Offset(0, 1),
+            blurRadius: 2,
+          ),
+        ],
+      ),
+      padding: const EdgeInsets.all(20),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Icon(icon, size: 22, color: _RegistroTokens.royalBlue),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Text(
+                  title,
+                  style: GoogleFonts.publicSans(
+                    fontSize: 18,
+                    fontWeight: FontWeight.w600,
+                    height: 28 / 18,
+                    color: _RegistroTokens.shark,
+                  ),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 18),
+          child,
+        ],
+      ),
+    );
+  }
+}
+
+class _StatusSelector extends StatelessWidget {
+  final String estadoActual;
+  final ValueChanged<String> onChanged;
+  final List<Map<String, String>> options;
+
+  const _StatusSelector({
+    required this.estadoActual,
+    required this.onChanged,
+    required this.options,
+  });
+
+  Color _colorFor(String value) {
+    switch (value) {
+      case EpiEstadoCaso.nuevo:
+        return _RegistroTokens.estadoNuevo;
+      case EpiEstadoCaso.reingreso:
+        return _RegistroTokens.estadoReingreso;
+      case EpiEstadoCaso.tratado:
+        return _RegistroTokens.estadoTratado;
+      default:
+        return EpidemiologiaUi.getEstadoCasoColor(value);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          'Estado actual',
+          style: GoogleFonts.inter(
+            fontSize: 14,
+            fontWeight: FontWeight.w600,
+            color: _RegistroTokens.shark,
+          ),
+        ),
+        const SizedBox(height: 10),
+        Row(
+          children: [
+            for (var i = 0; i < options.length; i++) ...[
+              if (i > 0) const SizedBox(width: 8),
+              Expanded(
+                child: _EstadoChipButton(
+                  label: options[i]['label']!,
+                  selected: estadoActual == options[i]['value'],
+                  accent: _colorFor(options[i]['value']!),
+                  onTap: () => onChanged(options[i]['value']!),
+                ),
+              ),
+            ],
+          ],
+        ),
+      ],
+    );
+  }
+}
+
+class _EstadoChipButton extends StatelessWidget {
+  final String label;
+  final bool selected;
+  final Color accent;
+  final VoidCallback onTap;
+
+  const _EstadoChipButton({
+    required this.label,
+    required this.selected,
+    required this.accent,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(8),
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 180),
+          curve: Curves.easeOut,
+          padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 8),
+          decoration: BoxDecoration(
+            color: selected ? accent.withValues(alpha: 0.14) : _RegistroTokens.bg,
+            borderRadius: BorderRadius.circular(8),
+            border: Border.all(
+              color: selected ? accent : _RegistroTokens.blueHaze,
+              width: selected ? 1.5 : 1,
+            ),
+          ),
+          child: Text(
+            label,
+            textAlign: TextAlign.center,
+            maxLines: 2,
+            overflow: TextOverflow.ellipsis,
+            style: GoogleFonts.inter(
+              fontSize: 12,
+              fontWeight: selected ? FontWeight.w700 : FontWeight.w600,
+              height: 1.2,
+              color: selected ? accent : _RegistroTokens.gunPowder,
+            ),
+          ),
+        ),
       ),
     );
   }
@@ -577,26 +953,34 @@ class _DropdownSkeleton extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final cs = Theme.of(context).colorScheme;
     return InputDecorator(
       decoration: InputDecoration(
         labelText: label,
-        prefixIcon: const Icon(Icons.place_outlined),
+        filled: true,
+        fillColor: _RegistroTokens.cardSurface,
+        border: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(8),
+          borderSide: const BorderSide(color: _RegistroTokens.blueHaze),
+        ),
+        prefixIcon: Icon(Icons.place_outlined, color: _RegistroTokens.paleSky),
       ),
       child: Row(
         children: [
           SizedBox(
-            width: 16,
-            height: 16,
+            width: 18,
+            height: 18,
             child: CircularProgressIndicator(
               strokeWidth: 2,
-              color: cs.primary,
+              color: _RegistroTokens.royalBlue,
             ),
           ),
           const SizedBox(width: 12),
           Text(
             'Buscando sectores activos…',
-            style: TextStyle(color: cs.onSurfaceVariant, fontSize: 13),
+            style: GoogleFonts.inter(
+              color: _RegistroTokens.paleSky,
+              fontSize: 14,
+            ),
           ),
         ],
       ),
