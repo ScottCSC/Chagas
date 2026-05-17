@@ -8,6 +8,8 @@ import '../services/network_service.dart';
 import '../utils/epidemiologia_ui.dart';
 import '../utils/responsive_layout.dart';
 import '../utils/nav.dart';
+import '../widgets/hover_scale.dart';
+import '../widgets/states.dart';
 import 'detalle_caso_screen.dart';
 import 'nuevo_caso_screen.dart';
 import 'ver_screen.dart' show FiltroVer;
@@ -377,17 +379,7 @@ class _HomeScreenState extends State<HomeScreen> {
                     ),
                   const SizedBox(height: 4),
                   if (_loading)
-                    const Padding(
-                      padding: EdgeInsets.symmetric(vertical: 32),
-                      child: Center(
-                        child: SizedBox(
-                          width: 28,
-                          height: 28,
-                          child:
-                              CircularProgressIndicator(strokeWidth: 2.5),
-                        ),
-                      ),
-                    )
+                    _KpiSkeleton(isDesktop: isDesktop)
                   else if (isDesktop)
                     Wrap(
                       spacing: 16,
@@ -694,7 +686,7 @@ class _PrimaryActionCard extends StatelessWidget {
               if (compact)
                 Expanded(
                   child: Text(
-                    'Ingresar datos anónimos: género, edad, sector y estado del caso.',
+                    'Ingresar datos anónimos: género, fecha de nacimiento, sector y estado del caso.',
                     maxLines: 3,
                     overflow: TextOverflow.ellipsis,
                     style: GoogleFonts.inter(
@@ -706,7 +698,7 @@ class _PrimaryActionCard extends StatelessWidget {
                 )
               else
                 Text(
-                  'Ingresar datos anónimos: género, edad, sector y estado del caso.',
+                  'Ingresar datos anónimos: género, fecha de nacimiento, sector y estado del caso.',
                   maxLines: 4,
                   overflow: TextOverflow.ellipsis,
                   style: GoogleFonts.inter(
@@ -884,6 +876,26 @@ class _QuickActionCard extends StatelessWidget {
   }
 }
 
+/// Número con animación de conteo (`TweenAnimationBuilder` de `int`).
+/// Respeta `MediaQuery.disableAnimations`.
+class _AnimatedKpiNumber extends StatelessWidget {
+  final int value;
+  final TextStyle style;
+
+  const _AnimatedKpiNumber({required this.value, required this.style});
+
+  @override
+  Widget build(BuildContext context) {
+    final reduce = MediaQuery.of(context).disableAnimations;
+    return TweenAnimationBuilder<int>(
+      tween: IntTween(begin: 0, end: value),
+      duration: reduce ? Duration.zero : const Duration(milliseconds: 700),
+      curve: Curves.easeOutCubic,
+      builder: (context, v, child) => Text('$v', style: style),
+    );
+  }
+}
+
 /// KPI resumen: total de casos cargados en el panel.
 class _TotalMetricCard extends StatelessWidget {
   final int value;
@@ -896,47 +908,50 @@ class _TotalMetricCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Material(
-      color: Colors.transparent,
-      child: InkWell(
-        borderRadius: BorderRadius.circular(12),
-        onTap: onTap,
-        child: Ink(
-          decoration: BoxDecoration(
-            color: const Color(0xFFF3F4F6),
-            borderRadius: BorderRadius.circular(12),
-            border: Border.all(color: _HomeTokens.blueHaze),
-          ),
-          child: Padding(
-            padding: const EdgeInsets.all(17),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Icon(Icons.analytics_outlined,
-                    size: 26, color: _HomeTokens.gunPowder),
-                const SizedBox(height: 8),
-                Text(
-                  '$value',
-                  style: GoogleFonts.publicSans(
-                    fontSize: 30,
-                    fontWeight: FontWeight.w700,
-                    height: 38 / 30,
-                    letterSpacing: -0.6,
-                    color: _HomeTokens.shark,
+    return HoverScale(
+      radius: 12,
+      child: Material(
+        color: Colors.transparent,
+        child: InkWell(
+          borderRadius: BorderRadius.circular(12),
+          onTap: onTap,
+          child: Ink(
+            decoration: BoxDecoration(
+              color: const Color(0xFFF3F4F6),
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(color: _HomeTokens.blueHaze),
+            ),
+            child: Padding(
+              padding: const EdgeInsets.all(17),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Icon(Icons.analytics_outlined,
+                      size: 26, color: _HomeTokens.gunPowder),
+                  const SizedBox(height: 8),
+                  _AnimatedKpiNumber(
+                    value: value,
+                    style: GoogleFonts.publicSans(
+                      fontSize: 30,
+                      fontWeight: FontWeight.w700,
+                      height: 38 / 30,
+                      letterSpacing: -0.6,
+                      color: _HomeTokens.shark,
+                    ),
                   ),
-                ),
-                const SizedBox(height: 4),
-                Text(
-                  'TOTAL CASOS',
-                  style: GoogleFonts.inter(
-                    fontSize: 12,
-                    fontWeight: FontWeight.w600,
-                    letterSpacing: 0.48,
-                    height: 16 / 12,
-                    color: _HomeTokens.gunPowder,
+                  const SizedBox(height: 4),
+                  Text(
+                    'TOTAL CASOS',
+                    style: GoogleFonts.inter(
+                      fontSize: 12,
+                      fontWeight: FontWeight.w600,
+                      letterSpacing: 0.48,
+                      height: 16 / 12,
+                      color: _HomeTokens.gunPowder,
+                    ),
                   ),
-                ),
-              ],
+                ],
+              ),
             ),
           ),
         ),
@@ -979,8 +994,8 @@ class _StatusMetricCard extends StatelessWidget {
         children: [
           Icon(icon, size: 26, color: iconColor),
           const SizedBox(height: 8),
-          Text(
-            '$value',
+          _AnimatedKpiNumber(
+            value: value,
             style: GoogleFonts.publicSans(
               fontSize: 30,
               fontWeight: FontWeight.w700,
@@ -1004,19 +1019,22 @@ class _StatusMetricCard extends StatelessWidget {
       ),
     );
 
-    return Material(
-      color: Colors.transparent,
-      child: InkWell(
-        borderRadius: BorderRadius.circular(12),
-        onTap: onTap,
-        child: Ink(
-          width: fullWidth ? double.infinity : null,
-          decoration: BoxDecoration(
-            color: background,
-            borderRadius: BorderRadius.circular(12),
-            border: Border.all(color: borderColor),
+    return HoverScale(
+      radius: 12,
+      child: Material(
+        color: Colors.transparent,
+        child: InkWell(
+          borderRadius: BorderRadius.circular(12),
+          onTap: onTap,
+          child: Ink(
+            width: fullWidth ? double.infinity : null,
+            decoration: BoxDecoration(
+              color: background,
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(color: borderColor),
+            ),
+            child: inner,
           ),
-          child: inner,
         ),
       ),
     );
@@ -1136,6 +1154,60 @@ class _RecentCaseItem extends StatelessWidget {
           ),
         ),
       ),
+    );
+  }
+}
+
+/// Skeleton de los KPI mientras se cargan datos.
+class _KpiSkeleton extends StatelessWidget {
+  final bool isDesktop;
+  const _KpiSkeleton({required this.isDesktop});
+
+  Widget _card() {
+    return Container(
+      padding: const EdgeInsets.all(17),
+      decoration: BoxDecoration(
+        color: const Color(0xFFF3F4F6),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: _HomeTokens.blueHaze),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: const [
+          ShimmerBox(height: 26, width: 26, radius: 6),
+          SizedBox(height: 10),
+          ShimmerBox(height: 28, width: 60, radius: 6),
+          SizedBox(height: 8),
+          ShimmerBox(height: 12, width: 100, radius: 4),
+        ],
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (isDesktop) {
+      return Wrap(
+        spacing: 16,
+        runSpacing: 16,
+        children: List.generate(
+          4,
+          (_) => SizedBox(width: kKpiCardWidth, child: _card()),
+        ),
+      );
+    }
+    return Column(
+      children: [
+        _card(),
+        const SizedBox(height: 12),
+        Row(children: [
+          Expanded(child: _card()),
+          const SizedBox(width: 16),
+          Expanded(child: _card()),
+        ]),
+        const SizedBox(height: 16),
+        _card(),
+      ],
     );
   }
 }

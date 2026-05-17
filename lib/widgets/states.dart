@@ -10,6 +10,82 @@ class AppLoading extends StatelessWidget {
   }
 }
 
+/// Bloque shimmer reutilizable para skeletons sin paquete externo.
+/// Respeta `MediaQuery.disableAnimations`.
+class ShimmerBox extends StatefulWidget {
+  final double height;
+  final double? width;
+  final double radius;
+
+  const ShimmerBox({
+    super.key,
+    this.height = 16,
+    this.width,
+    this.radius = 8,
+  });
+
+  @override
+  State<ShimmerBox> createState() => _ShimmerBoxState();
+}
+
+class _ShimmerBoxState extends State<ShimmerBox>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _c = AnimationController(
+    vsync: this,
+    duration: const Duration(milliseconds: 1300),
+  );
+
+  @override
+  void initState() {
+    super.initState();
+    _c.repeat();
+  }
+
+  @override
+  void dispose() {
+    _c.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final reduce = MediaQuery.of(context).disableAnimations;
+    final base = Colors.grey.shade200;
+    final highlight = Colors.grey.shade100;
+
+    if (reduce) {
+      return Container(
+        height: widget.height,
+        width: widget.width,
+        decoration: BoxDecoration(
+          color: base,
+          borderRadius: BorderRadius.circular(widget.radius),
+        ),
+      );
+    }
+
+    return AnimatedBuilder(
+      animation: _c,
+      builder: (context, child) {
+        final t = _c.value;
+        return Container(
+          height: widget.height,
+          width: widget.width,
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(widget.radius),
+            gradient: LinearGradient(
+              begin: Alignment(-1 + 2 * t, 0),
+              end: Alignment(1 + 2 * t, 0),
+              colors: [base, highlight, base],
+              stops: const [0.0, 0.5, 1.0],
+            ),
+          ),
+        );
+      },
+    );
+  }
+}
+
 /// Pantalla vacía con mensaje y opcional botón de acción.
 class AppEmptyState extends StatelessWidget {
   final String text;

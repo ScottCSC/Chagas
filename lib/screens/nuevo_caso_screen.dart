@@ -1,17 +1,25 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:google_fonts/google_fonts.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../models/caso_epidemiologico.dart';
 import '../models/sector.dart';
 import '../repositories/app_repositories.dart';
 import '../utils/epi_db_constants.dart';
+import '../utils/epi_edad.dart';
+import '../utils/epi_identificador_parcial.dart';
+import '../utils/identificador_parcial_input_formatter.dart';
 import '../utils/epidemiologia_ui.dart';
+import '../utils/errors.dart';
 import '../utils/nav.dart';
 import '../utils/responsive_layout.dart';
-import '../utils/toast.dart';
+import '../widgets/app_dropdown_form_field.dart';
 import '../widgets/save_button.dart';
 import 'detalle_caso_screen.dart';
+
+/// Resultado del diálogo de posible duplicado.
+enum _DuplicadoDialogAccion { cancelar, verExistente, guardarIgual }
 
 /// Tokens alineados al sistema visual Chagas Tracker / Figma (login, home).
 class _RegistroTokens {
@@ -24,10 +32,6 @@ class _RegistroTokens {
   static const Color paleSky = Color(0xFF6B7280);
   static const Color cardSurface = Color(0xFFFFFFFF);
   static const Color privacyFill = Color(0xFFF5F2FF);
-
-  static const Color estadoNuevo = Color(0xFF1565C0);
-  static const Color estadoReingreso = Color(0xFFE65100);
-  static const Color estadoTratado = Color(0xFF2E7D32);
 }
 
 class NuevoCasoScreen extends StatefulWidget {
@@ -42,12 +46,14 @@ class _NuevoCasoScreenState extends State<NuevoCasoScreen> {
   final _casoRepo = AppRepositories.casoEpidemiologico;
   final _sectorRepo = AppRepositories.sector;
 
-  final _edadCtrl = TextEditingController();
   final _ocupacionCtrl = TextEditingController();
   final _numeroContactosCtrl = TextEditingController();
   final _obsCtrl = TextEditingController();
+  final _fechaNacimientoCtrl = TextEditingController();
+  final _identParcialCtrl = TextEditingController();
 
   String? _genero;
+  DateTime? _fechaNacimiento;
   int? _idSector;
   /// Por defecto “nuevo” para acelerar registro en campo.
   String _estadoActual = EpiEstadoCaso.nuevo;
@@ -63,10 +69,10 @@ class _NuevoCasoScreenState extends State<NuevoCasoScreen> {
     {'label': 'No informa', 'value': EpiGenero.noInforma},
   ];
 
-  static const _estadoCasoOptions = [
-    {'label': 'Caso nuevo', 'value': EpiEstadoCaso.nuevo},
-    {'label': 'Reingreso', 'value': EpiEstadoCaso.reingreso},
-    {'label': 'Tratado', 'value': EpiEstadoCaso.tratado},
+  static const _estadoChips = [
+    (EpiEstadoCaso.nuevo, 'Caso nuevo'),
+    (EpiEstadoCaso.reingreso, 'Reingreso'),
+    (EpiEstadoCaso.tratado, 'Tratado'),
   ];
 
   @override
@@ -77,11 +83,34 @@ class _NuevoCasoScreenState extends State<NuevoCasoScreen> {
 
   @override
   void dispose() {
-    _edadCtrl.dispose();
     _ocupacionCtrl.dispose();
     _numeroContactosCtrl.dispose();
     _obsCtrl.dispose();
+    _fechaNacimientoCtrl.dispose();
+    _identParcialCtrl.dispose();
     super.dispose();
+  }
+
+  List<DropdownMenuItem<String>> _generoDropdownItems() {
+    return _generoOptions
+        .map(
+          (o) => DropdownMenuItem<String>(
+            value: o['value']!,
+            child: Text(
+              o['label']!,
+              overflow: TextOverflow.ellipsis,
+              style: GoogleFonts.inter(fontSize: 16),
+            ),
+          ),
+        )
+        .toList();
+  }
+
+  String _labelSectorOpcion(Sector s) {
+    final n = s.nombreSector.trim();
+    final c = s.comuna.trim();
+    if (c.isEmpty) return n;
+    return '$n · $c';
   }
 
   Future<void> _cargarSectores() async {
@@ -111,12 +140,45 @@ class _NuevoCasoScreenState extends State<NuevoCasoScreen> {
     }
   }
 
-  String? _validarEdad(String? v) {
-    final t = v?.trim() ?? '';
-    if (t.isEmpty) return null;
-    final n = int.tryParse(t);
-    if (n == null) return 'Ingresa un número válido';
-    if (n < 0 || n > 120) return 'La edad debe estar entre 0 y 120';
+  int? get _edadCalculada =>
+      _fechaNacimiento != null ? calcularEdad(_fechaNacimiento!) : null;
+
+  String _fmtFechaNacimiento(DateTime d) {
+    const meses = [
+      'ene', 'feb', 'mar', 'abr', 'may', 'jun',
+      'jul', 'ago', 'sep', 'oct', 'nov', 'dic',
+    ];
+    return '${d.day} ${meses[d.month - 1]} ${d.year}';
+  }
+
+  Future<void> _elegirFechaNacimiento() async {
+    final hoy = DateTime.now();
+    final inicial = _fechaNacimiento ?? DateTime(hoy.year - 30, hoy.month, hoy.day);
+    final picked = await showDatePicker(
+      context: context,
+      initialDate: inicial.isAfter(hoy) ? hoy : inicial,
+      firstDate: fechaNacimientoMinimaPermitida(),
+      lastDate: hoy,
+      helpText: 'Fecha de nacimiento',
+      cancelText: 'Cancelar',
+      confirmText: 'Aceptar',
+    );
+    if (picked == null || !mounted) return;
+    final fecha = DateTime(picked.year, picked.month, picked.day);
+    setState(() {
+      _fechaNacimiento = fecha;
+      _fechaNacimientoCtrl.text = _fmtFechaNacimiento(fecha);
+    });
+    _formKey.currentState?.validate();
+  }
+
+  String? _validarFechaNacimiento(String? _) {
+    if (_fechaNacimiento == null) {
+      return 'Seleccione fecha de nacimiento';
+    }
+    final edad = calcularEdad(_fechaNacimiento!);
+    if (edad < 0) return 'La fecha no puede ser futura';
+    if (edad > 120) return 'La edad no puede superar 120 años';
     return null;
   }
 
@@ -130,28 +192,290 @@ class _NuevoCasoScreenState extends State<NuevoCasoScreen> {
     return null;
   }
 
-  String _mensajeErrorGuardado(Object e) {
-    final s = e.toString().toLowerCase();
-    final pareceFk = s.contains('23503') ||
-        s.contains('foreign key') ||
-        s.contains('violates foreign key') ||
-        (s.contains('id_sector') && (s.contains('key') && s.contains('not present')));
-    if (pareceFk) {
-      return 'El sector seleccionado no existe o no está disponible. Actualiza la lista de sectores e intenta nuevamente.';
+  void _showFeedback({
+    required String message,
+    required IconData icon,
+    required Color color,
+    String? subtitle,
+  }) {
+    final isSuccess = color == Colors.green;
+    if (isSuccess) {
+      HapticFeedback.lightImpact();
+    } else {
+      HapticFeedback.mediumImpact();
     }
-    return 'No se pudo guardar: $e';
+
+    final size = MediaQuery.sizeOf(context);
+    final disableAnim = MediaQuery.of(context).disableAnimations;
+    final desktop = size.width >= kDesktopBreakpoint;
+
+    const maxWidth = 460.0;
+    final horizontalMargin = desktop
+        ? ((size.width - maxWidth) / 2).clamp(16.0, double.infinity)
+        : 16.0;
+
+    final messenger = ScaffoldMessenger.of(context);
+    messenger.clearSnackBars();
+    messenger.showSnackBar(
+      SnackBar(
+        behavior: SnackBarBehavior.floating,
+        margin: EdgeInsets.fromLTRB(horizontalMargin, 12, horizontalMargin, 16),
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(14),
+        ),
+        backgroundColor: color,
+        elevation: 4,
+        duration: Duration(
+          seconds: disableAnim ? 4 : (isSuccess ? 3 : 5),
+        ),
+        showCloseIcon: true,
+        closeIconColor: Colors.white,
+        content: Semantics(
+          liveRegion: true,
+          container: true,
+          label: '$message${subtitle != null ? '. $subtitle' : ''}',
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Icon(icon, color: Colors.white, size: 22),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      message,
+                      style: GoogleFonts.inter(
+                        fontWeight: FontWeight.w600,
+                        fontSize: 14,
+                        color: Colors.white,
+                        height: 1.35,
+                      ),
+                    ),
+                    if (subtitle != null && subtitle.isNotEmpty) ...[
+                      const SizedBox(height: 4),
+                      Text(
+                        subtitle,
+                        style: GoogleFonts.inter(
+                          fontWeight: FontWeight.w500,
+                          fontSize: 13,
+                          color: Colors.white.withValues(alpha: 0.95),
+                          height: 1.3,
+                        ),
+                      ),
+                    ],
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  void _feedbackCamposObligatorios() {
+    _showFeedback(
+      message: 'Complete los campos obligatorios',
+      icon: Icons.warning_amber_rounded,
+      color: Colors.orange,
+    );
   }
 
   bool get _puedeGuardar =>
       !_guardando && !_cargandoSectores && _sectores.isNotEmpty;
 
+  String _sectorEtiquetaParaId(int? idSector) {
+    if (idSector == null) return '—';
+    for (final s in _sectores) {
+      if (s.idSector == idSector) return _labelSectorOpcion(s);
+    }
+    return '—';
+  }
+
+  String _fmtFechaRegistroCaso(CasoEpidemiologico c) {
+    final t = c.fechaRegistro ?? c.creadoEn;
+    if (t == null) return '—';
+    final l = t.toLocal();
+    const meses = [
+      'ene', 'feb', 'mar', 'abr', 'may', 'jun',
+      'jul', 'ago', 'sep', 'oct', 'nov', 'dic',
+    ];
+    return '${l.day} ${meses[l.month - 1]} ${l.year}';
+  }
+
+  Widget _filaInfoDuplicado(String etiqueta, String valor) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 8),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          SizedBox(
+            width: 128,
+            child: Text(
+              etiqueta,
+              style: GoogleFonts.inter(
+                fontSize: 13,
+                fontWeight: FontWeight.w600,
+                color: _RegistroTokens.gunPowder,
+              ),
+            ),
+          ),
+          Expanded(
+            child: Text(
+              valor,
+              style: GoogleFonts.inter(
+                fontSize: 14,
+                color: _RegistroTokens.shark,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Future<_DuplicadoDialogAccion?> _mostrarDialogoPosibleDuplicado(
+    CasoEpidemiologico existente,
+  ) {
+    final codigo = (existente.codigoCaso ?? '').trim();
+    return showDialog<_DuplicadoDialogAccion>(
+      context: context,
+      barrierDismissible: false,
+      builder: (ctx) {
+        return AlertDialog(
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(20),
+          ),
+          title: Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Icon(Icons.warning_amber_rounded, color: Colors.orange.shade800),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Text(
+                  'Posible caso duplicado',
+                  style: GoogleFonts.publicSans(
+                    fontSize: 18,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+              ),
+            ],
+          ),
+          content: SingleChildScrollView(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(
+                  'Ya existe un registro con los mismos datos de coincidencia.',
+                  style: GoogleFonts.inter(fontSize: 14, height: 1.45),
+                ),
+                const SizedBox(height: 16),
+                _filaInfoDuplicado(
+                  'Código',
+                  codigo.isNotEmpty ? codigo : '—',
+                ),
+                _filaInfoDuplicado('Sector', _sectorEtiquetaParaId(existente.idSector)),
+                _filaInfoDuplicado('Fecha de registro', _fmtFechaRegistroCaso(existente)),
+                _filaInfoDuplicado(
+                  'Estado actual',
+                  EpidemiologiaUi.getEstadoCasoLabel(existente.estadoActual ?? ''),
+                ),
+              ],
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () =>
+                  Navigator.of(ctx).pop(_DuplicadoDialogAccion.cancelar),
+              child: const Text('Cancelar'),
+            ),
+            OutlinedButton(
+              onPressed: () =>
+                  Navigator.of(ctx).pop(_DuplicadoDialogAccion.verExistente),
+              child: const Text('Ver caso existente'),
+            ),
+            FilledButton(
+              style: FilledButton.styleFrom(
+                backgroundColor: _RegistroTokens.cta,
+                foregroundColor: const Color(0xFFFCF8FF),
+              ),
+              onPressed: () =>
+                  Navigator.of(ctx).pop(_DuplicadoDialogAccion.guardarIgual),
+              child: const Text('Guardar de todos modos'),
+            ),
+          ],
+        );
+      },
+    );
+  }
+
   Future<void> _guardar() async {
     if (!_puedeGuardar) return;
-    if (!_formKey.currentState!.validate()) return;
 
-    if (_idSector == null) {
-      showErr(context, 'Seleccione un sector territorial.');
+    if (!_formKey.currentState!.validate()) {
+      _feedbackCamposObligatorios();
       return;
+    }
+
+    if (_idSector == null || _fechaNacimiento == null) {
+      _feedbackCamposObligatorios();
+      return;
+    }
+
+    final edad = calcularEdad(_fechaNacimiento!);
+    if (edad < 0 || edad > 120) {
+      _feedbackCamposObligatorios();
+      return;
+    }
+
+    final identNormalizado = normalizarIdentificadorParcial(_identParcialCtrl.text);
+
+    final puedeBuscarDuplicados = kSupabaseIdentificadorParcialColumnEnabled &&
+        kSupabaseFechaNacimientoColumnEnabled;
+
+    if (puedeBuscarDuplicados && _genero != null) {
+      try {
+        final duplicados = await _casoRepo.buscarPosiblesDuplicados(
+          identificadorParcial: identNormalizado,
+          fechaNacimiento: _fechaNacimiento!,
+          genero: _genero!,
+          idSector: _idSector!,
+        );
+        if (!mounted) return;
+        if (duplicados.isNotEmpty) {
+          final accion = await _mostrarDialogoPosibleDuplicado(duplicados.first);
+          if (!mounted) return;
+          switch (accion) {
+            case _DuplicadoDialogAccion.cancelar:
+            case null:
+              return;
+            case _DuplicadoDialogAccion.verExistente:
+              final idEx = duplicados.first.idCaso;
+              if (idEx != null) {
+                await pushSharedAxis(
+                  context,
+                  DetalleCasoScreen(idCaso: idEx),
+                );
+              }
+              return;
+            case _DuplicadoDialogAccion.guardarIgual:
+              break;
+          }
+        }
+      } catch (e, st) {
+        debugPrint('NuevoCasoScreen buscarPosiblesDuplicados: $e\n$st');
+        if (!mounted) return;
+        _showFeedback(
+          message: mensajeErrorUsuario(e),
+          icon: Icons.error_outline,
+          color: Colors.red,
+        );
+        return;
+      }
     }
 
     debugPrint('id_sector seleccionado para guardar: $_idSector');
@@ -159,31 +483,33 @@ class _NuevoCasoScreenState extends State<NuevoCasoScreen> {
     HapticFeedback.mediumImpact();
     setState(() => _guardando = true);
     try {
-      final edadT = _edadCtrl.text.trim();
-      final edad = edadT.isEmpty ? null : int.parse(edadT);
       final oc = _ocupacionCtrl.text.trim();
       final nContactosT = _numeroContactosCtrl.text.trim();
-      final numeroContactos = nContactosT.isEmpty ? null : int.parse(nContactosT);
+      final numeroContactos = nContactosT.isEmpty ? 0 : int.parse(nContactosT);
 
       final caso = CasoEpidemiologico(
         genero: _genero,
-        edad: edad,
+        fechaNacimiento: _fechaNacimiento,
         idSector: _idSector,
         ocupacion: oc.isEmpty ? null : oc,
         estadoActual: _estadoActual,
         numeroContactos: numeroContactos,
         observacionGeneral:
             _obsCtrl.text.trim().isEmpty ? null : _obsCtrl.text.trim(),
+        identificadorParcial: identNormalizado,
       );
 
       final creado = await _casoRepo.createCaso(caso);
       if (!mounted) return;
 
-      final codigo = creado.codigoCaso;
-      showOk(
-        context,
-        'Caso registrado'
-        '${codigo != null ? ' · $codigo' : ''}',
+      final codigo = creado.codigoCaso?.trim();
+      _showFeedback(
+        message: 'Caso registrado correctamente',
+        subtitle: codigo != null && codigo.isNotEmpty
+            ? 'Código: $codigo'
+            : null,
+        icon: Icons.check_circle_outline,
+        color: Colors.green,
       );
 
       final id = creado.idCaso;
@@ -194,10 +520,23 @@ class _NuevoCasoScreenState extends State<NuevoCasoScreen> {
       } else {
         await pushSharedAxis(context, DetalleCasoScreen(idCaso: id));
       }
-    } catch (e) {
-      if (mounted) {
-        showErr(context, _mensajeErrorGuardado(e));
+    } catch (e, st) {
+      debugPrint('NuevoCasoScreen _guardar: $e\n$st');
+      if (!mounted) return;
+      if (esSesionExpirada(e)) {
+        _showFeedback(
+          message: 'Su sesión expiró. Inicie sesión nuevamente.',
+          icon: Icons.lock_clock_outlined,
+          color: Colors.red,
+        );
+        await Supabase.instance.client.auth.signOut();
+        return;
       }
+      _showFeedback(
+        message: mensajeErrorUsuario(e),
+        icon: Icons.error_outline,
+        color: Colors.red,
+      );
     } finally {
       if (mounted) setState(() => _guardando = false);
     }
@@ -207,26 +546,31 @@ class _NuevoCasoScreenState extends State<NuevoCasoScreen> {
     required String label,
     String? hint,
     String? helper,
+    Widget? helperWidget,
     Widget? prefix,
     IconData? prefixIcon,
+    Widget? suffixIcon,
   }) {
     return InputDecoration(
       labelText: label,
       hintText: hint,
-      helperText: helper,
+      helperText: helperWidget != null ? null : helper,
+      helper: helperWidget,
+      helperMaxLines: 3,
+      suffixIcon: suffixIcon,
       filled: true,
       fillColor: _RegistroTokens.cardSurface,
       contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
       border: OutlineInputBorder(
-        borderRadius: BorderRadius.circular(8),
+        borderRadius: BorderRadius.circular(14),
         borderSide: const BorderSide(color: _RegistroTokens.blueHaze),
       ),
       enabledBorder: OutlineInputBorder(
-        borderRadius: BorderRadius.circular(8),
+        borderRadius: BorderRadius.circular(14),
         borderSide: const BorderSide(color: _RegistroTokens.blueHaze),
       ),
       focusedBorder: OutlineInputBorder(
-        borderRadius: BorderRadius.circular(8),
+        borderRadius: BorderRadius.circular(14),
         borderSide: const BorderSide(color: _RegistroTokens.royalBlue, width: 1.5),
       ),
       labelStyle: GoogleFonts.inter(
@@ -247,10 +591,63 @@ class _NuevoCasoScreenState extends State<NuevoCasoScreen> {
     );
   }
 
+  bool _isDesktop(BuildContext context) =>
+      isDesktopWidth(MediaQuery.sizeOf(context).width);
+
+  Widget _wrapSaveButtonTheme(BuildContext context, Widget child) {
+    final desktop = _isDesktop(context);
+    return Theme(
+      data: Theme.of(context).copyWith(
+        elevatedButtonTheme: ElevatedButtonThemeData(
+          style: ElevatedButton.styleFrom(
+            backgroundColor: _RegistroTokens.cta,
+            foregroundColor: const Color(0xFFFCF8FF),
+            elevation: 0,
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(desktop ? 14 : 8),
+            ),
+            padding: EdgeInsets.symmetric(
+              vertical: desktop ? 14 : 14,
+              horizontal: desktop ? 20 : 16,
+            ),
+          ),
+        ),
+      ),
+      child: child,
+    );
+  }
+
+  Widget _buildSaveButton(BuildContext context) {
+    final isDesktop = _isDesktop(context);
+
+    final button = _wrapSaveButtonTheme(
+      context,
+      SaveButton(
+        onPressed: _puedeGuardar ? _guardar : null,
+        loading: _guardando,
+        label: 'Guardar caso',
+        loadingLabel: 'Guardando...',
+        width: isDesktop ? 260 : null,
+        height: 52,
+        icon: Icons.save_outlined,
+      ),
+    );
+
+    if (isDesktop) {
+      return Padding(
+        padding: const EdgeInsets.only(top: 24, bottom: 8),
+        child: Center(child: button),
+      );
+    }
+
+    return button;
+  }
+
   @override
   Widget build(BuildContext context) {
     final bottomInset = MediaQuery.paddingOf(context).bottom;
     final screenWide = MediaQuery.sizeOf(context).width >= 720;
+    final isDesktop = _isDesktop(context);
 
     return Scaffold(
       backgroundColor: _RegistroTokens.bg,
@@ -279,10 +676,20 @@ class _NuevoCasoScreenState extends State<NuevoCasoScreen> {
           alignment: Alignment.topCenter,
           child: ConstrainedBox(
             constraints: const BoxConstraints(maxWidth: kFormMaxWidth),
-            child: Form(
+            child: AbsorbPointer(
+              absorbing: _guardando,
+              child: AnimatedOpacity(
+                duration: const Duration(milliseconds: 180),
+                opacity: _guardando ? 0.55 : 1,
+                child: Form(
               key: _formKey,
               child: ListView(
-                padding: EdgeInsets.fromLTRB(16, 8, 16, 100 + bottomInset),
+                padding: EdgeInsets.fromLTRB(
+                  16,
+                  8,
+                  16,
+                  isDesktop ? 32 : 100 + bottomInset,
+                ),
                 children: [
                   Text(
                     'Registro epidemiológico anónimo',
@@ -299,182 +706,80 @@ class _NuevoCasoScreenState extends State<NuevoCasoScreen> {
                   _SectionCard(
                     icon: Icons.assignment_outlined,
                     title: 'Datos del caso',
-                    child: screenWide
-                        ? Row(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Expanded(
-                                flex: 2,
-                                child: Column(
-                                  crossAxisAlignment:
-                                      CrossAxisAlignment.stretch,
-                                  children: [
-                                    Text(
-                                      'Género',
-                                      style: GoogleFonts.inter(
-                                        fontSize: 14,
-                                        fontWeight: FontWeight.w600,
-                                        color: _RegistroTokens.shark,
-                                      ),
-                                    ),
-                                    const SizedBox(height: 8),
-                                    DropdownButtonFormField<String>(
-                                      key: ValueKey<String?>(_genero),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: [
+                        screenWide
+                            ? Row(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Expanded(
+                                    flex: 2,
+                                    child: AppDropdownFormField<String>(
+                                      key: ValueKey('gen_$_genero'),
+                                      label: 'Género *',
                                       initialValue: _genero,
-                                      isExpanded: true,
-                                      decoration: _fieldDecoration(
-                                        label: 'Seleccionar género *',
-                                        prefixIcon: Icons.wc_rounded,
-                                      ),
-                                      items: _generoOptions
-                                          .map(
-                                            (o) => DropdownMenuItem<String>(
-                                              value: o['value']!,
-                                              child: Text(
-                                                o['label']!,
-                                                overflow:
-                                                    TextOverflow.ellipsis,
-                                                style: GoogleFonts.inter(
-                                                    fontSize: 16),
-                                              ),
-                                            ),
-                                          )
-                                          .toList(),
-                                      onChanged: (v) =>
-                                          setState(() => _genero = v),
-                                      validator: (v) => (v == null ||
-                                              v.isEmpty)
+                                      items: _generoDropdownItems(),
+                                      prefixIcon: Icons.wc_rounded,
+                                      onChanged: (v) => setState(() => _genero = v),
+                                      validator: (v) => (v == null || v.isEmpty)
                                           ? 'Seleccione género'
                                           : null,
                                     ),
-                                  ],
-                                ),
-                              ),
-                              const SizedBox(width: 16),
-                              Expanded(
-                                child: Column(
-                                  crossAxisAlignment:
-                                      CrossAxisAlignment.stretch,
-                                  children: [
-                                    Text(
-                                      'Edad',
-                                      style: GoogleFonts.inter(
-                                        fontSize: 14,
-                                        fontWeight: FontWeight.w600,
-                                        color: _RegistroTokens.shark,
-                                      ),
-                                    ),
-                                    const SizedBox(height: 8),
-                                    TextFormField(
-                                      controller: _edadCtrl,
-                                      keyboardType: TextInputType.number,
-                                      inputFormatters: [
-                                        FilteringTextInputFormatter
-                                            .digitsOnly
-                                      ],
-                                      maxLength: 3,
-                                      style: GoogleFonts.inter(
-                                        fontSize: 16,
-                                        color: _RegistroTokens.shark,
-                                      ),
-                                      decoration: _fieldDecoration(
-                                        label: 'Años (opcional)',
-                                        hint: 'Ej. 45',
-                                        prefixIcon: Icons.cake_outlined,
-                                      ).copyWith(counterText: ''),
-                                      validator: _validarEdad,
-                                    ),
-                                  ],
-                                ),
-                              ),
-                            ],
-                          )
-                        : Column(
-                            crossAxisAlignment: CrossAxisAlignment.stretch,
-                            children: [
-                              Text(
-                                'Género',
-                                style: GoogleFonts.inter(
-                                  fontSize: 14,
-                                  fontWeight: FontWeight.w600,
-                                  color: _RegistroTokens.shark,
-                                ),
-                              ),
-                              const SizedBox(height: 8),
-                              DropdownButtonFormField<String>(
-                                key: ValueKey<String?>(_genero),
-                                initialValue: _genero,
-                                isExpanded: true,
-                                decoration: _fieldDecoration(
-                                  label: 'Seleccionar género *',
-                                  prefixIcon: Icons.wc_rounded,
-                                ),
-                                items: _generoOptions
-                                    .map(
-                                      (o) => DropdownMenuItem<String>(
-                                        value: o['value']!,
-                                        child: Text(
-                                          o['label']!,
-                                          overflow: TextOverflow.ellipsis,
-                                          style:
-                                              GoogleFonts.inter(fontSize: 16),
-                                        ),
-                                      ),
-                                    )
-                                    .toList(),
-                                onChanged: (v) => setState(() => _genero = v),
-                                validator: (v) => (v == null || v.isEmpty)
-                                    ? 'Seleccione género'
-                                    : null,
-                              ),
-                              const SizedBox(height: 16),
-                              Text(
-                                'Edad',
-                                style: GoogleFonts.inter(
-                                  fontSize: 14,
-                                  fontWeight: FontWeight.w600,
-                                  color: _RegistroTokens.shark,
-                                ),
-                              ),
-                              const SizedBox(height: 8),
-                              TextFormField(
-                                controller: _edadCtrl,
-                                keyboardType: TextInputType.number,
-                                inputFormatters: [
-                                  FilteringTextInputFormatter.digitsOnly
+                                  ),
+                                  const SizedBox(width: 16),
+                                  Expanded(
+                                    flex: 2,
+                                    child: _buildFechaNacimientoField(),
+                                  ),
                                 ],
-                                maxLength: 3,
-                                style: GoogleFonts.inter(
-                                  fontSize: 16,
-                                  color: _RegistroTokens.shark,
-                                ),
-                                decoration: _fieldDecoration(
-                                  label: 'Años (opcional)',
-                                  hint: 'Ej. 45',
-                                  prefixIcon: Icons.cake_outlined,
-                                ).copyWith(counterText: ''),
-                                validator: _validarEdad,
+                              )
+                            : Column(
+                                crossAxisAlignment: CrossAxisAlignment.stretch,
+                                children: [
+                                  AppDropdownFormField<String>(
+                                    key: ValueKey('gen_$_genero'),
+                                    label: 'Género *',
+                                    initialValue: _genero,
+                                    items: _generoDropdownItems(),
+                                    prefixIcon: Icons.wc_rounded,
+                                    onChanged: (v) => setState(() => _genero = v),
+                                    validator: (v) => (v == null || v.isEmpty)
+                                        ? 'Seleccione género'
+                                        : null,
+                                  ),
+                                  const SizedBox(height: 16),
+                                  _buildFechaNacimientoField(),
+                                ],
                               ),
-                            ],
+                        const SizedBox(height: 16),
+                        TextFormField(
+                          controller: _identParcialCtrl,
+                          autocorrect: false,
+                          autofillHints: const [],
+                          inputFormatters: [
+                            IdentificadorParcialInputFormatter(),
+                          ],
+                          style: GoogleFonts.inter(
+                            fontSize: 16,
+                            color: _RegistroTokens.shark,
                           ),
-                  ),
-                  if (screenWide)
-                    Padding(
-                      padding: const EdgeInsets.only(top: 20),
-                      child: _StatusSelector(
-                        estadoActual: _estadoActual,
-                        onChanged: (v) => setState(() => _estadoActual = v),
-                        options: _estadoCasoOptions,
-                      ),
-                    )
-                  else ...[
-                    const SizedBox(height: 20),
-                    _StatusSelector(
-                      estadoActual: _estadoActual,
-                      onChanged: (v) => setState(() => _estadoActual = v),
-                      options: _estadoCasoOptions,
+                          decoration: _fieldDecoration(
+                            label: 'Identificador parcial *',
+                            hint: '123-4',
+                            prefixIcon: Icons.fingerprint_outlined,
+                            helper:
+                                'Ingrese solo los últimos 3 dígitos y el dígito verificador.',
+                          ),
+                          validator: validarIdentificadorParcial,
+                        ),
+                      ],
                     ),
-                  ],
+                  ),
+                  Padding(
+                    padding: EdgeInsets.only(top: screenWide ? 20 : 16),
+                    child: _buildEstadoCasoChips(),
+                  ),
               const SizedBox(height: 16),
 
               _SectionCard(
@@ -585,8 +890,30 @@ class _NuevoCasoScreenState extends State<NuevoCasoScreen> {
                         label: 'Observaciones',
                         hint:
                             'Ingrese observaciones generales sin datos personales.',
-                        helper:
-                            'Evite nombres, RUT, teléfonos o direcciones exactas.',
+                        helperWidget: Row(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            const Padding(
+                              padding: EdgeInsets.only(top: 1, right: 6),
+                              child: Icon(
+                                Icons.warning_amber_rounded,
+                                size: 16,
+                                color: Color(0xFFD97706),
+                              ),
+                            ),
+                            Expanded(
+                              child: Text(
+                                'No incluya nombres, RUT ni datos identificables.',
+                                style: GoogleFonts.inter(
+                                  fontSize: 12,
+                                  height: 1.35,
+                                  fontWeight: FontWeight.w600,
+                                  color: const Color(0xFFB45309),
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
                       ).copyWith(
                         alignLabelWithHint: true,
                         prefixIcon: null,
@@ -595,35 +922,149 @@ class _NuevoCasoScreenState extends State<NuevoCasoScreen> {
                   ],
                 ),
               ),
+                  if (isDesktop) _buildSaveButton(context),
                 ],
               ),
             ),
-          ),
-        ),
-      ),
-      bottomNavigationBar: SafeArea(
-        minimum: const EdgeInsets.fromLTRB(16, 10, 16, 12),
-        child: Theme(
-          data: Theme.of(context).copyWith(
-            elevatedButtonTheme: ElevatedButtonThemeData(
-              style: ElevatedButton.styleFrom(
-                backgroundColor: _RegistroTokens.cta,
-                foregroundColor: const Color(0xFFFCF8FF),
-                elevation: 0,
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(8),
-                ),
-                padding: const EdgeInsets.symmetric(vertical: 14),
               ),
             ),
           ),
-          child: SaveButton(
-            onPressed: _puedeGuardar ? _guardar : null,
-            loading: _guardando,
-            label: 'Guardar caso',
+        ),
+      ),
+      bottomNavigationBar: isDesktop
+          ? null
+          : SafeArea(
+              minimum: const EdgeInsets.fromLTRB(16, 10, 16, 12),
+              child: _buildSaveButton(context),
+            ),
+    );
+  }
+
+  Widget _buildFechaNacimientoField() {
+    final edad = _edadCalculada;
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        TextFormField(
+          readOnly: true,
+          enableInteractiveSelection: false,
+          onTap: _elegirFechaNacimiento,
+          controller: _fechaNacimientoCtrl,
+          style: GoogleFonts.inter(fontSize: 16, color: _RegistroTokens.shark),
+          validator: _validarFechaNacimiento,
+          decoration: _fieldDecoration(
+            label: 'Fecha de nacimiento *',
+            hint: 'Seleccionar fecha',
+            prefixIcon: Icons.cake_outlined,
+            suffixIcon: IconButton(
+              icon: Icon(Icons.calendar_today_outlined,
+                  color: _RegistroTokens.royalBlue),
+              onPressed: _elegirFechaNacimiento,
+            ),
+          ),
+        ),
+        if (edad != null) ...[
+          const SizedBox(height: 8),
+          Text(
+            'Edad calculada: $edad ${edad == 1 ? 'año' : 'años'}',
+            style: GoogleFonts.inter(
+              fontSize: 14,
+              fontWeight: FontWeight.w600,
+              color: _RegistroTokens.royalBlue,
+            ),
+          ),
+        ],
+      ],
+    );
+  }
+
+  /// Selector visual del estado (enum en BD: nuevo | reingreso | tratado).
+  Widget _buildEstadoCasoChips() {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          crossAxisAlignment: CrossAxisAlignment.center,
+          children: [
+            Icon(
+              Icons.flag_rounded,
+              size: 26,
+              color: _RegistroTokens.royalBlue,
+            ),
+            const SizedBox(width: 10),
+            Expanded(
+              child: Text(
+                'Estado actual del caso *',
+                style: GoogleFonts.inter(
+                  fontSize: 17,
+                  fontWeight: FontWeight.w800,
+                  color: _RegistroTokens.shark,
+                  height: 1.25,
+                ),
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 6),
+        Text(
+          'Seleccione la situación epidemiológica del registro.',
+          style: GoogleFonts.inter(
+            fontSize: 13,
+            height: 1.35,
+            color: _RegistroTokens.gunPowder,
+            fontWeight: FontWeight.w500,
+          ),
+        ),
+        const SizedBox(height: 14),
+        Wrap(
+          spacing: 12,
+          runSpacing: 12,
+          children: [
+            for (final t in _estadoChips)
+              _buildEstadoChoiceChip(
+                value: t.$1,
+                label: t.$2,
+              ),
+          ],
+        ),
+      ],
+    );
+  }
+
+  Widget _buildEstadoChoiceChip({
+    required String value,
+    required String label,
+  }) {
+    final selected = _estadoActual == value;
+    final accent = EpidemiologiaUi.getEstadoCasoColor(value);
+    return ChoiceChip(
+      showCheckmark: false,
+      label: Padding(
+        padding: const EdgeInsets.symmetric(vertical: 2),
+        child: Text(
+          label,
+          style: GoogleFonts.inter(
+            fontSize: 14,
+            fontWeight: selected ? FontWeight.w700 : FontWeight.w600,
+            color: selected ? accent : _RegistroTokens.shark,
           ),
         ),
       ),
+      selected: selected,
+      onSelected: (_) => setState(() => _estadoActual = value),
+      selectedColor: accent.withValues(alpha: 0.18),
+      backgroundColor: _RegistroTokens.cardSurface,
+      disabledColor: Colors.grey.shade100,
+      padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
+      side: BorderSide(
+        color: selected ? accent : _RegistroTokens.blueHaze,
+        width: selected ? 2 : 1.2,
+      ),
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+      avatar: selected
+          ? Icon(Icons.check_circle_rounded, size: 20, color: accent)
+          : Icon(Icons.circle_outlined, size: 20, color: _RegistroTokens.paleSky),
     );
   }
 
@@ -639,16 +1080,7 @@ class _NuevoCasoScreenState extends State<NuevoCasoScreen> {
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Text(
-          'Sector',
-          style: GoogleFonts.inter(
-            fontSize: 14,
-            fontWeight: FontWeight.w600,
-            color: _RegistroTokens.shark,
-          ),
-        ),
-        const SizedBox(height: 6),
-        Text(
-          'Seleccione un sector territorial, no una dirección exacta.',
+          'Seleccione un sector territorial.',
           style: GoogleFonts.inter(
             fontSize: 12,
             height: 1.4,
@@ -656,42 +1088,24 @@ class _NuevoCasoScreenState extends State<NuevoCasoScreen> {
           ),
         ),
         const SizedBox(height: 8),
-        DropdownButtonFormField<int>(
-          key: ValueKey<int?>(_idSector),
+        AppDropdownFormField<int>(
+          key: ValueKey('sec_$_idSector'),
+          label: 'Sector territorial *',
           initialValue: _idSector,
-          isExpanded: true,
-          style: GoogleFonts.inter(fontSize: 16, color: _RegistroTokens.shark),
-          decoration: _fieldDecoration(
-            label: 'Sector territorial *',
-            prefixIcon: Icons.place_outlined,
-          ).copyWith(
-            suffixIcon: IconButton(
-              tooltip: 'Recargar sectores',
-              icon: Icon(Icons.refresh_rounded,
-                  size: 22, color: _RegistroTokens.paleSky),
-              onPressed: _cargandoSectores ? null : _cargarSectores,
-            ),
-          ),
-          hint: Text(
-            'Seleccionar sector',
-            style: GoogleFonts.inter(
-              fontSize: 16,
-              color: _RegistroTokens.paleSky,
-            ),
-          ),
           items: _sectores
               .map(
                 (sector) => DropdownMenuItem<int>(
                   value: sector.idSector,
                   child: Text(
-                    sector.comuna.isEmpty
-                        ? sector.nombreSector
-                        : '${sector.nombreSector} — ${sector.comuna}',
+                    _labelSectorOpcion(sector),
                     overflow: TextOverflow.ellipsis,
+                    style: GoogleFonts.inter(fontSize: 16),
                   ),
                 ),
               )
               .toList(),
+          prefixIcon: Icons.place_outlined,
+          hint: sinSectores ? null : 'Elegir sector',
           onChanged: sinSectores
               ? null
               : (value) {
@@ -839,114 +1253,6 @@ class _SectionCard extends StatelessWidget {
   }
 }
 
-class _StatusSelector extends StatelessWidget {
-  final String estadoActual;
-  final ValueChanged<String> onChanged;
-  final List<Map<String, String>> options;
-
-  const _StatusSelector({
-    required this.estadoActual,
-    required this.onChanged,
-    required this.options,
-  });
-
-  Color _colorFor(String value) {
-    switch (value) {
-      case EpiEstadoCaso.nuevo:
-        return _RegistroTokens.estadoNuevo;
-      case EpiEstadoCaso.reingreso:
-        return _RegistroTokens.estadoReingreso;
-      case EpiEstadoCaso.tratado:
-        return _RegistroTokens.estadoTratado;
-      default:
-        return EpidemiologiaUi.getEstadoCasoColor(value);
-    }
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Text(
-          'Estado actual',
-          style: GoogleFonts.inter(
-            fontSize: 14,
-            fontWeight: FontWeight.w600,
-            color: _RegistroTokens.shark,
-          ),
-        ),
-        const SizedBox(height: 10),
-        Row(
-          children: [
-            for (var i = 0; i < options.length; i++) ...[
-              if (i > 0) const SizedBox(width: 8),
-              Expanded(
-                child: _EstadoChipButton(
-                  label: options[i]['label']!,
-                  selected: estadoActual == options[i]['value'],
-                  accent: _colorFor(options[i]['value']!),
-                  onTap: () => onChanged(options[i]['value']!),
-                ),
-              ),
-            ],
-          ],
-        ),
-      ],
-    );
-  }
-}
-
-class _EstadoChipButton extends StatelessWidget {
-  final String label;
-  final bool selected;
-  final Color accent;
-  final VoidCallback onTap;
-
-  const _EstadoChipButton({
-    required this.label,
-    required this.selected,
-    required this.accent,
-    required this.onTap,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return Material(
-      color: Colors.transparent,
-      child: InkWell(
-        onTap: onTap,
-        borderRadius: BorderRadius.circular(8),
-        child: AnimatedContainer(
-          duration: const Duration(milliseconds: 180),
-          curve: Curves.easeOut,
-          padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 8),
-          decoration: BoxDecoration(
-            color: selected ? accent.withValues(alpha: 0.14) : _RegistroTokens.bg,
-            borderRadius: BorderRadius.circular(8),
-            border: Border.all(
-              color: selected ? accent : _RegistroTokens.blueHaze,
-              width: selected ? 1.5 : 1,
-            ),
-          ),
-          child: Text(
-            label,
-            textAlign: TextAlign.center,
-            maxLines: 2,
-            overflow: TextOverflow.ellipsis,
-            style: GoogleFonts.inter(
-              fontSize: 12,
-              fontWeight: selected ? FontWeight.w700 : FontWeight.w600,
-              height: 1.2,
-              color: selected ? accent : _RegistroTokens.gunPowder,
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-}
-
 class _DropdownSkeleton extends StatelessWidget {
   final String label;
   const _DropdownSkeleton({required this.label});
@@ -959,7 +1265,7 @@ class _DropdownSkeleton extends StatelessWidget {
         filled: true,
         fillColor: _RegistroTokens.cardSurface,
         border: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(8),
+          borderRadius: BorderRadius.circular(14),
           borderSide: const BorderSide(color: _RegistroTokens.blueHaze),
         ),
         prefixIcon: Icon(Icons.place_outlined, color: _RegistroTokens.paleSky),

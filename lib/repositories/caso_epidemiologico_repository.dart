@@ -10,7 +10,28 @@ abstract class CasoEpidemiologicoRepository {
 
   Future<void> updateCaso(CasoEpidemiologico caso);
 
+  /// Actualiza solo `estado_actual`; el trigger `trg_historial_estado` registra el cambio.
+  Future<CasoEpidemiologico> updateEstadoCaso({
+    required int idCaso,
+    required String estadoActual,
+  });
+
+  /// Actualiza solo `observacion_general`; pasar `null` para limpiar.
+  Future<CasoEpidemiologico> updateObservacionCaso({
+    required int idCaso,
+    required String? observacionGeneral,
+  });
+
   Future<void> deleteCaso(int idCaso);
 
   Future<List<HistorialEstadoCaso>> getHistorialEstado(int idCaso);
+
+  /// Posibles duplicados por identificador parcial + fecha nacimiento + género + sector.
+  /// Requiere columnas en Supabase (`identificador_parcial`, `fecha_nacimiento`); activar flags en [epi_db_constants].
+  Future<List<CasoEpidemiologico>> buscarPosiblesDuplicados({
+    required String identificadorParcial,
+    required DateTime fechaNacimiento,
+    required String genero,
+    required int idSector,
+  });
 }

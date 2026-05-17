@@ -29,15 +29,27 @@ class _MainShellState extends State<MainShell> {
   }) {
     setState(() => _index = index);
     if (index != 2) return;
-    WidgetsBinding.instance.addPostFrameCallback((_) {
+    WidgetsBinding.instance.addPostFrameCallback((_) async {
       final ver = _verScreenKey.currentState;
       if (ver == null) return;
       if (verEstadoFiltro != null) {
         ver.applyEstadoFiltro(verEstadoFiltro);
       }
+      await ver.refreshCasosDesdeServidor();
+      if (!mounted) return;
       if (focusVerSearch) {
         ver.requestSearchFocus();
       }
+    });
+  }
+
+  /// Al elegir la pestaña Ver casos, sincronizar lista con el servidor (IndexedStack
+  /// mantiene el estado anterior si solo se llamaba `_load()` desde Inicio).
+  void _onTabSelected(int i) {
+    setState(() => _index = i);
+    if (i != 2) return;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _verScreenKey.currentState?.refreshCasosDesdeServidor();
     });
   }
 
@@ -148,7 +160,7 @@ class _MainShellState extends State<MainShell> {
                     children: [
                       NavigationRail(
                         selectedIndex: _index,
-                        onDestinationSelected: (i) => setState(() => _index = i),
+                        onDestinationSelected: _onTabSelected,
                         extended: useExtendedRail,
                         backgroundColor: Colors.white,
                         selectedIconTheme: const IconThemeData(
@@ -210,7 +222,7 @@ class _MainShellState extends State<MainShell> {
                 bottomNavigationBar: BottomNavigationBar(
                   type: BottomNavigationBarType.fixed,
                   currentIndex: _index,
-                  onTap: (i) => setState(() => _index = i),
+                  onTap: _onTabSelected,
                   backgroundColor: Colors.white,
                   selectedItemColor: _railPurple,
                   unselectedItemColor: _railMuted,

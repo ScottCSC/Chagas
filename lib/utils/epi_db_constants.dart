@@ -1,6 +1,43 @@
 // Valores alineados con enums PostgreSQL (genero_enum, estado_caso_enum, tipo_contacto_enum).
 // Si el esquema real difiere, ajustar solo aquí.
 
+/// Si es `true`, [CasoEpidemiologico.toInsertMap] envía `rango_edad` a Supabase.
+/// La tabla actual en producción **no** incluye esta columna: mantener en `false` salvo migración.
+const bool kSupabaseRangoEdadColumnEnabled = false;
+
+/// Si es `true`, [CasoEpidemiologico.toInsertMap] envía `fecha_nacimiento` a Supabase.
+const bool kSupabaseFechaNacimientoColumnEnabled = true;
+
+/// Si es `true`, [CasoEpidemiologico.toInsertMap] envía `identificador_parcial` y se puede
+/// ejecutar [CasoEpidemiologicoRepository.buscarPosiblesDuplicados] antes del insert.
+const bool kSupabaseIdentificadorParcialColumnEnabled = true;
+
+/// La tabla `casos_epidemiologicos` no persiste edad; solo UI derivada de `fecha_nacimiento`.
+const bool kSupabaseEdadColumnEnabled = false;
+
+// TODO(epi): usar calcularRangoEtario(edad) para agrupar casos por rango etario en dashboard.
+
+/// Rangos etarios: 1-4, 5-9, luego bloques de 5 años hasta 75-79 y 80+ (solo UI / futuro `rango_edad`).
+const List<String> kRangoEdadOptions = [
+  '1-4',
+  '5-9',
+  '10-14',
+  '15-19',
+  '20-24',
+  '25-29',
+  '30-34',
+  '35-39',
+  '40-44',
+  '45-49',
+  '50-54',
+  '55-59',
+  '60-64',
+  '65-69',
+  '70-74',
+  '75-79',
+  '80+',
+];
+
 class EpiGenero {
   EpiGenero._();
 

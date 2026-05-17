@@ -142,10 +142,10 @@ class _LoginScreenState extends State<LoginScreen> {
             child: LayoutBuilder(
               builder: (context, constraints) {
                 return SingleChildScrollView(
-                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 32),
+                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 28),
                   child: ConstrainedBox(
                     constraints: BoxConstraints(
-                      minHeight: constraints.maxHeight - 64,
+                      minHeight: constraints.maxHeight - 56,
                     ),
                     child: Center(
                       child: ConstrainedBox(
@@ -159,28 +159,6 @@ class _LoginScreenState extends State<LoginScreen> {
                             children: [
                               Column(
                                 children: [
-                                  SizedBox(
-                                    width: 96,
-                                    height: 112,
-                                    child: Align(
-                                      alignment: Alignment.topCenter,
-                                      child: ClipRRect(
-                                        borderRadius: BorderRadius.circular(12),
-                                        child: Image.asset(
-                                          'assets/images/chagas_tracker_logo.png',
-                                          width: 96,
-                                          height: 96,
-                                          fit: BoxFit.contain,
-                                          errorBuilder: (context, error, stackTrace) => Icon(
-                                            Icons.favorite_outline_rounded,
-                                            size: 56,
-                                            color: _LoginTokens.royalBlue.withValues(alpha: 0.85),
-                                          ),
-                                        ),
-                                      ),
-                                    ),
-                                  ),
-                                  const SizedBox(height: 8),
                                   Text(
                                     'Chagas Tracker',
                                     textAlign: TextAlign.center,
