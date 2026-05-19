@@ -46,7 +46,6 @@ class _NuevoCasoScreenState extends State<NuevoCasoScreen> {
   final _casoRepo = AppRepositories.casoEpidemiologico;
   final _sectorRepo = AppRepositories.sector;
 
-  final _ocupacionCtrl = TextEditingController();
   final _numeroContactosCtrl = TextEditingController();
   final _obsCtrl = TextEditingController();
   final _fechaNacimientoCtrl = TextEditingController();
@@ -62,6 +61,10 @@ class _NuevoCasoScreenState extends State<NuevoCasoScreen> {
   bool _cargandoSectores = true;
   String? _errorCargaSectores;
   bool _guardando = false;
+
+  List<String> _ocupaciones = [];
+  String? _ocupacionSeleccionada;
+  bool _ocupacionesCargando = true;
 
   static const _generoOptions = [
     {'label': 'Femenino', 'value': EpiGenero.femenino},
@@ -79,16 +82,39 @@ class _NuevoCasoScreenState extends State<NuevoCasoScreen> {
   void initState() {
     super.initState();
     _cargarSectores();
+    _cargarOcupaciones();
   }
 
   @override
   void dispose() {
-    _ocupacionCtrl.dispose();
     _numeroContactosCtrl.dispose();
     _obsCtrl.dispose();
     _fechaNacimientoCtrl.dispose();
     _identParcialCtrl.dispose();
     super.dispose();
+  }
+
+  Future<void> _cargarOcupaciones() async {
+    try {
+      final response = await Supabase.instance.client
+          .from('catalogo_ocupaciones')
+          .select('nombre')
+          .eq('activo', true)
+          .order('orden', ascending: true);
+      if (!mounted) return;
+      setState(() {
+        _ocupaciones = (response as List)
+            .map((e) => e['nombre'].toString())
+            .toList();
+        _ocupacionesCargando = false;
+      });
+    } catch (_) {
+      if (!mounted) return;
+      setState(() {
+        _ocupaciones = [];
+        _ocupacionesCargando = false;
+      });
+    }
   }
 
   List<DropdownMenuItem<String>> _generoDropdownItems() {
@@ -483,7 +509,6 @@ class _NuevoCasoScreenState extends State<NuevoCasoScreen> {
     HapticFeedback.mediumImpact();
     setState(() => _guardando = true);
     try {
-      final oc = _ocupacionCtrl.text.trim();
       final nContactosT = _numeroContactosCtrl.text.trim();
       final numeroContactos = nContactosT.isEmpty ? 0 : int.parse(nContactosT);
 
@@ -491,7 +516,7 @@ class _NuevoCasoScreenState extends State<NuevoCasoScreen> {
         genero: _genero,
         fechaNacimiento: _fechaNacimiento,
         idSector: _idSector,
-        ocupacion: oc.isEmpty ? null : oc,
+        ocupacion: _ocupacionSeleccionada,
         estadoActual: _estadoActual,
         numeroContactos: numeroContactos,
         observacionGeneral:
@@ -672,25 +697,30 @@ class _NuevoCasoScreenState extends State<NuevoCasoScreen> {
       ),
       body: SafeArea(
         bottom: false,
-        child: Align(
-          alignment: Alignment.topCenter,
-          child: ConstrainedBox(
-            constraints: const BoxConstraints(maxWidth: kFormMaxWidth),
-            child: AbsorbPointer(
-              absorbing: _guardando,
-              child: AnimatedOpacity(
-                duration: const Duration(milliseconds: 180),
-                opacity: _guardando ? 0.55 : 1,
-                child: Form(
+        child: AbsorbPointer(
+          absorbing: _guardando,
+          child: AnimatedOpacity(
+            duration: const Duration(milliseconds: 180),
+            opacity: _guardando ? 0.55 : 1,
+            child: Form(
               key: _formKey,
               child: ListView(
                 padding: EdgeInsets.fromLTRB(
-                  16,
+                  0,
                   8,
-                  16,
+                  0,
                   isDesktop ? 32 : 100 + bottomInset,
                 ),
                 children: [
+                  Align(
+                    alignment: Alignment.topCenter,
+                    child: ConstrainedBox(
+                      constraints: const BoxConstraints(maxWidth: kFormMaxWidth),
+                      child: Padding(
+                        padding: const EdgeInsets.symmetric(horizontal: 16),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.stretch,
+                          children: [
                   Text(
                     'Registro epidemiológico anónimo',
                     style: GoogleFonts.inter(
@@ -809,18 +839,59 @@ class _NuevoCasoScreenState extends State<NuevoCasoScreen> {
                       ),
                     ),
                     const SizedBox(height: 8),
-                    TextFormField(
-                      controller: _ocupacionCtrl,
-                      textCapitalization: TextCapitalization.sentences,
+                    DropdownButtonFormField<String>(
+                      initialValue: _ocupacionSeleccionada,
+                      isExpanded: true,
+                      borderRadius: BorderRadius.circular(14),
+                      menuMaxHeight: 320,
                       style: GoogleFonts.inter(
                         fontSize: 16,
                         color: _RegistroTokens.shark,
                       ),
                       decoration: _fieldDecoration(
                         label: 'Ocupación (opcional)',
-                        hint: 'Ej. agricultura, estudiante…',
+                        hint: _ocupacionesCargando
+                            ? 'Cargando ocupaciones…'
+                            : 'Seleccionar ocupación',
                         prefixIcon: Icons.work_outline_rounded,
                       ),
+                      disabledHint: Text(
+                        'Cargando ocupaciones…',
+                        style: GoogleFonts.inter(
+                          fontSize: 16,
+                          color: _RegistroTokens.paleSky,
+                        ),
+                      ),
+                      items: _ocupacionesCargando
+                          ? const <DropdownMenuItem<String>>[]
+                          : [
+                              DropdownMenuItem<String>(
+                                value: null,
+                                child: Text(
+                                  'No informado',
+                                  style: GoogleFonts.inter(
+                                    fontSize: 16,
+                                    fontStyle: FontStyle.italic,
+                                    color: Theme.of(context)
+                                        .colorScheme
+                                        .onSurfaceVariant,
+                                  ),
+                                ),
+                              ),
+                              ..._ocupaciones.map(
+                                (nombre) => DropdownMenuItem<String>(
+                                  value: nombre,
+                                  child: Text(
+                                    nombre,
+                                    overflow: TextOverflow.ellipsis,
+                                  ),
+                                ),
+                              ),
+                            ],
+                      onChanged: _ocupacionesCargando
+                          ? null
+                          : (val) =>
+                              setState(() => _ocupacionSeleccionada = val),
                     ),
                     const SizedBox(height: 20),
                     Text(
@@ -923,9 +994,12 @@ class _NuevoCasoScreenState extends State<NuevoCasoScreen> {
                 ),
               ),
                   if (isDesktop) _buildSaveButton(context),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ),
                 ],
-              ),
-            ),
               ),
             ),
           ),

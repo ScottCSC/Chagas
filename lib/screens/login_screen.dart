@@ -3,8 +3,6 @@ import 'package:flutter/services.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
-import '../utils/toast.dart';
-
 /// Colores y medidas alineados al frame de login en Figma (node 3346:927).
 class _LoginTokens {
   static const Color bg = Color(0xFFFCF8FF);
@@ -40,6 +38,7 @@ class _LoginScreenState extends State<LoginScreen> {
 
   bool cargando = false;
   bool obscurePass = true;
+  String? _errorMessage;
 
   @override
   void initState() {
@@ -90,8 +89,10 @@ class _LoginScreenState extends State<LoginScreen> {
   }
 
   Future<void> _iniciarSesion() async {
+    setState(() => _errorMessage = null);
+
     if (emailCtrl.text.trim().isEmpty || passCtrl.text.isEmpty) {
-      showErr(context, 'Por favor ingresa correo y contraseña');
+      setState(() => _errorMessage = 'Ingresa correo y contraseña.');
       return;
     }
 
@@ -103,11 +104,14 @@ class _LoginScreenState extends State<LoginScreen> {
         email: emailCtrl.text.trim(),
         password: passCtrl.text,
       );
-    } catch (e) {
+    } catch (_) {
       if (mounted) {
-        setState(() => cargando = false);
-        showErr(context, 'Error al iniciar sesión: $e');
+        setState(
+          () => _errorMessage = 'Correo o contraseña incorrectos.',
+        );
       }
+    } finally {
+      if (mounted) setState(() => cargando = false);
     }
   }
 
@@ -230,7 +234,7 @@ class _LoginScreenState extends State<LoginScreen> {
                                           color: _LoginTokens.shark,
                                         ),
                                         decoration: _inputDecoration(
-                                          hint: 'ejemplo@salud.gob.ar',
+                                          hint: 'correo@ejemplo.cl',
                                           focused: emailFocus.hasFocus,
                                           prefix: Padding(
                                             padding: const EdgeInsets.only(left: 8, right: 4),
@@ -300,6 +304,7 @@ class _LoginScreenState extends State<LoginScreen> {
                                       Semantics(
                                         button: true,
                                         label: 'Ingresar',
+                                        enabled: !cargando,
                                         child: Material(
                                           color: _LoginTokens.cta,
                                           borderRadius: BorderRadius.circular(_LoginTokens.fieldRadius),
@@ -348,6 +353,32 @@ class _LoginScreenState extends State<LoginScreen> {
                                           ),
                                         ),
                                       ),
+                                      if (_errorMessage != null)
+                                        Padding(
+                                          padding: const EdgeInsets.only(top: 12),
+                                          child: Row(
+                                            mainAxisAlignment: MainAxisAlignment.center,
+                                            children: [
+                                              const Icon(
+                                                Icons.error_outline,
+                                                size: 15,
+                                                color: Color(0xFFA32D2D),
+                                              ),
+                                              const SizedBox(width: 6),
+                                              Flexible(
+                                                child: Text(
+                                                  _errorMessage!,
+                                                  textAlign: TextAlign.center,
+                                                  style: GoogleFonts.inter(
+                                                    fontSize: 13,
+                                                    height: 18 / 13,
+                                                    color: const Color(0xFFA32D2D),
+                                                  ),
+                                                ),
+                                              ),
+                                            ],
+                                          ),
+                                        ),
                                     ],
                                   ),
                                 ),

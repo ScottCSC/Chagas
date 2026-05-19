@@ -99,6 +99,35 @@ class CasoEpidemiologicoRepositorySupabase implements CasoEpidemiologicoReposito
   }
 
   @override
+  Future<CasoEpidemiologico> updateDatosCaso({
+    required int idCaso,
+    required String identificadorParcial,
+    required String genero,
+    required DateTime fechaNacimiento,
+    required String? ocupacion,
+    required int numeroContactos,
+  }) async {
+    final fecha =
+        '${fechaNacimiento.year.toString().padLeft(4, '0')}-${fechaNacimiento.month.toString().padLeft(2, '0')}-${fechaNacimiento.day.toString().padLeft(2, '0')}';
+    final ocup = ocupacion?.trim();
+
+    final res = await _sb
+        .from('casos_epidemiologicos')
+        .update({
+          'identificador_parcial': identificadorParcial,
+          'genero': genero,
+          'fecha_nacimiento': fecha,
+          'ocupacion': (ocup == null || ocup.isEmpty) ? null : ocup,
+          'numero_contactos': numeroContactos,
+          'actualizado_en': DateTime.now().toUtc().toIso8601String(),
+        })
+        .eq('id_caso', idCaso)
+        .select()
+        .single();
+    return CasoEpidemiologico.fromMap(Map<String, dynamic>.from(res));
+  }
+
+  @override
   Future<List<CasoEpidemiologico>> buscarPosiblesDuplicados({
     required String identificadorParcial,
     required DateTime fechaNacimiento,

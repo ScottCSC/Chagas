@@ -22,6 +22,16 @@ abstract class CasoEpidemiologicoRepository {
     required String? observacionGeneral,
   });
 
+  /// Actualiza datos epidemiológicos editables (no toca estado ni observación; no dispara historial).
+  Future<CasoEpidemiologico> updateDatosCaso({
+    required int idCaso,
+    required String identificadorParcial,
+    required String genero,
+    required DateTime fechaNacimiento,
+    required String? ocupacion,
+    required int numeroContactos,
+  });
+
   Future<void> deleteCaso(int idCaso);
 
   Future<List<HistorialEstadoCaso>> getHistorialEstado(int idCaso);

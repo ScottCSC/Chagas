@@ -190,65 +190,73 @@ class _PerfilScreenState extends State<PerfilScreen> {
               ),
             )
           : SafeArea(
-              child: ListView(
+              child: SingleChildScrollView(
                 padding: const EdgeInsets.fromLTRB(16, 8, 16, 28),
-                children: [
-                  Text(
-                    'Configuración de usuario',
-                    style: GoogleFonts.inter(
-                      fontSize: 15,
-                      height: 22 / 15,
-                      color: _PerfilTokens.gunPowder,
+                child: Center(
+                  child: ConstrainedBox(
+                    constraints: const BoxConstraints(maxWidth: 600),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: [
+                        Text(
+                          'Configuración de usuario',
+                          style: GoogleFonts.inter(
+                            fontSize: 15,
+                            height: 22 / 15,
+                            color: _PerfilTokens.gunPowder,
+                          ),
+                        ),
+                        const SizedBox(height: 20),
+                        _ProfileHeaderCard(
+                          inicial: _inicialAvatar(user),
+                          nombre: _nombreMostrado(user),
+                          rolEtiqueta: _rolEtiqueta(_role),
+                        ),
+                        const SizedBox(height: 16),
+                        _AccountInfoCard(
+                          email: user?.email ?? '—',
+                          rolEtiqueta: _rolEtiqueta(_role),
+                        ),
+                        const SizedBox(height: 16),
+                        const _PrivacyNoticeCard(),
+                        const SizedBox(height: 20),
+                        Text(
+                          'Aplicación',
+                          style: GoogleFonts.inter(
+                            fontSize: 13,
+                            fontWeight: FontWeight.w700,
+                            letterSpacing: 0.5,
+                            color: _PerfilTokens.gunPowder,
+                          ),
+                        ),
+                        const SizedBox(height: 10),
+                        _SettingsOptionTile(
+                          icon: Icons.info_outline_rounded,
+                          title: 'Acerca de Chagas Tracker',
+                          onTap: _mostrarAcercaDe,
+                        ),
+                        const SizedBox(height: 8),
+                        _SettingsOptionTile(
+                          icon: Icons.health_and_safety_outlined,
+                          title: 'Buenas prácticas de registro',
+                          onTap: _mostrarBuenasPracticas,
+                        ),
+                        const SizedBox(height: 16),
+                        Center(
+                          child: Text(
+                            'Versión $_kAppVersionLabel',
+                            style: GoogleFonts.inter(
+                              fontSize: 12,
+                              color: _PerfilTokens.paleSky,
+                            ),
+                          ),
+                        ),
+                        const SizedBox(height: 24),
+                        _LogoutButton(onPressed: _confirmarYCerrarSesion),
+                      ],
                     ),
                   ),
-                  const SizedBox(height: 20),
-                  _ProfileHeaderCard(
-                    inicial: _inicialAvatar(user),
-                    nombre: _nombreMostrado(user),
-                    rolEtiqueta: _rolEtiqueta(_role),
-                  ),
-                  const SizedBox(height: 16),
-                  _AccountInfoCard(
-                    email: user?.email ?? '—',
-                    rolEtiqueta: _rolEtiqueta(_role),
-                  ),
-                  const SizedBox(height: 16),
-                  const _PrivacyNoticeCard(),
-                  const SizedBox(height: 20),
-                  Text(
-                    'Aplicación',
-                    style: GoogleFonts.inter(
-                      fontSize: 13,
-                      fontWeight: FontWeight.w700,
-                      letterSpacing: 0.5,
-                      color: _PerfilTokens.gunPowder,
-                    ),
-                  ),
-                  const SizedBox(height: 10),
-                  _SettingsOptionTile(
-                    icon: Icons.info_outline_rounded,
-                    title: 'Acerca de Chagas Tracker',
-                    onTap: _mostrarAcercaDe,
-                  ),
-                  const SizedBox(height: 8),
-                  _SettingsOptionTile(
-                    icon: Icons.health_and_safety_outlined,
-                    title: 'Buenas prácticas de registro',
-                    onTap: _mostrarBuenasPracticas,
-                  ),
-                  const SizedBox(height: 16),
-                  Center(
-                    child: Text(
-                      'Versión $_kAppVersionLabel',
-                      style: GoogleFonts.inter(
-                        fontSize: 12,
-                        color: _PerfilTokens.paleSky,
-                      ),
-                    ),
-                  ),
-                  const SizedBox(height: 24),
-                  _LogoutButton(onPressed: _confirmarYCerrarSesion),
-                ],
+                ),
               ),
             ),
     );

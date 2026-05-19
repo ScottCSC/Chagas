@@ -46,10 +46,13 @@ class _HomeTokens {
 class HomeScreen extends StatefulWidget {
   /// [focusVerSearch]: al ir a Ver (índice 2), enfoca el buscador.
   /// [verEstadoFiltro]: al ir a Ver, aplica chip de estado (p. ej. desde tarjetas Inicio).
+  /// [verSectorFiltroId]/[verSectorFiltroNombre]: filtro por sector (p. ej. card sector top).
   final void Function(
     int tabIndex, {
     bool focusVerSearch,
     FiltroVer? verEstadoFiltro,
+    int? verSectorFiltroId,
+    String? verSectorFiltroNombre,
   }) onGoToTab;
 
   const HomeScreen({super.key, required this.onGoToTab});
@@ -66,6 +69,7 @@ class _HomeScreenState extends State<HomeScreen> {
   Map<int, String> _nombreSectorPorId = {};
   bool _loading = true;
   int _sectoresActivos = 0;
+  String? _profileDisplayName;
 
   @override
   void initState() {
@@ -81,6 +85,7 @@ class _HomeScreenState extends State<HomeScreen> {
           _casos = [];
           _nombreSectorPorId = {};
           _sectoresActivos = 0;
+          _profileDisplayName = null;
         });
       }
       return;
@@ -91,7 +96,7 @@ class _HomeScreenState extends State<HomeScreen> {
       final list = await _casoRepo.getCasos();
       final activos = await _sectorRepo.getSectoresActivos();
       final ids = <int>{};
-      for (final c in list.take(5)) {
+      for (final c in list) {
         final sid = c.idSector;
         if (sid != null) ids.add(sid);
       }
@@ -100,21 +105,38 @@ class _HomeScreenState extends State<HomeScreen> {
         final sectores = await _sectorRepo.getSectoresByIds(ids.toList());
         secMap = {for (final s in sectores) s.idSector: s.nombreSector};
       }
-      if (!mounted) return;
-      setState(() {
-        _casos = list;
-        _nombreSectorPorId = secMap;
-        _sectoresActivos = activos.length;
-        _loading = false;
-      });
+      String? profileDisplayName;
+      final user = Supabase.instance.client.auth.currentUser;
+      if (user != null) {
+        try {
+          final row = await Supabase.instance.client
+              .from('profiles')
+              .select('display_name')
+              .eq('id', user.id)
+              .maybeSingle();
+          final dn = row?['display_name']?.toString().trim();
+          if (dn != null && dn.isNotEmpty) profileDisplayName = dn;
+        } catch (_) {}
+      }
+      if (mounted) {
+        setState(() {
+          _casos = list;
+          _nombreSectorPorId = secMap;
+          _sectoresActivos = activos.length;
+          _profileDisplayName = profileDisplayName;
+          _loading = false;
+        });
+      }
     } catch (_) {
-      if (!mounted) return;
-      setState(() {
-        _casos = [];
-        _nombreSectorPorId = {};
-        _sectoresActivos = 0;
-        _loading = false;
-      });
+      if (mounted) {
+        setState(() {
+          _casos = [];
+          _nombreSectorPorId = {};
+          _sectoresActivos = 0;
+          _profileDisplayName = null;
+          _loading = false;
+        });
+      }
     }
   }
 
@@ -133,23 +155,86 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   String _lineaSaludo() {
-    final user = Supabase.instance.client.auth.currentUser;
-    final meta = user?.userMetadata;
-    if (meta != null) {
-      for (final key in ['full_name', 'name', 'display_name']) {
-        final v = meta[key];
-        if (v is String && v.trim().isNotEmpty) {
-          final part = v.trim().split(RegExp(r'\s+')).first;
-          if (part.isNotEmpty) return 'Hola, $part';
-        }
+    final name = _profileDisplayName?.trim();
+    if (name != null && name.isNotEmpty) return 'Hola, $name';
+    return 'Hola, equipo Chagas';
+  }
+
+  ({int id, String nombre, int count})? _sectorConMasCasos() {
+    if (_casos.isEmpty) return null;
+    final counts = <int, int>{};
+    for (final c in _casos) {
+      final sid = c.idSector;
+      if (sid == null) continue;
+      counts[sid] = (counts[sid] ?? 0) + 1;
+    }
+    if (counts.isEmpty) return null;
+    var topId = counts.keys.first;
+    var topCount = counts[topId]!;
+    for (final e in counts.entries) {
+      if (e.value > topCount) {
+        topCount = e.value;
+        topId = e.key;
       }
     }
-    final email = user?.email;
-    if (email != null && email.contains('@')) {
-      final local = email.split('@').first;
-      if (local.length >= 3) return 'Hola, $local';
+    final nombre = _nombreSectorPorId[topId] ?? 'Sector #$topId';
+    return (id: topId, nombre: nombre, count: topCount);
+  }
+
+  void _irAVerSector({required int sectorId, required String sectorNombre}) {
+    widget.onGoToTab(
+      2,
+      verSectorFiltroId: sectorId,
+      verSectorFiltroNombre: sectorNombre,
+    );
+  }
+
+  Widget _buildSectorTopQuickCard() {
+    final top = _sectorConMasCasos();
+    if (top != null) {
+      return _QuickActionCard(
+        icon: Icons.location_on_outlined,
+        iconColor: const Color(0xFF006B3F),
+        title: 'Sector con más casos',
+        subtitle: '${top.nombre}\n${top.count} casos registrados',
+        onTap: () => _irAVerSector(
+          sectorId: top.id,
+          sectorNombre: top.nombre,
+        ),
+        borderRadius: 18,
+      );
     }
-    return 'Hola';
+    if (_casos.isNotEmpty) {
+      final c = _casos.first;
+      final sid = c.idSector;
+      final sector =
+          sid != null ? (_nombreSectorPorId[sid] ?? '—') : '—';
+      final estado = EpidemiologiaUi.getEstadoCasoLabel(c.estadoActual ?? '');
+      return _QuickActionCard(
+        icon: Icons.location_on_outlined,
+        iconColor: const Color(0xFF006B3F),
+        title: 'Último caso registrado',
+        subtitle: '${c.codigoCaso ?? '—'} · $sector · $estado',
+        onTap: c.idCaso != null
+            ? () {
+                pushSharedAxis(
+                  context,
+                  DetalleCasoScreen(idCaso: c.idCaso!),
+                );
+              }
+            : () => widget.onGoToTab(2),
+        borderRadius: 18,
+      );
+    }
+    return _QuickActionCard(
+      icon: Icons.location_on_outlined,
+      iconColor: const Color(0xFF006B3F),
+      title: 'Sector con más casos',
+      subtitle: 'Sin casos registrados aún',
+      muted: true,
+      onTap: () => widget.onGoToTab(2),
+      borderRadius: 18,
+    );
   }
 
   static String _fmtFechaLista(CasoEpidemiologico c) {
@@ -309,11 +394,16 @@ class _HomeScreenState extends State<HomeScreen> {
         child: LayoutBuilder(
           builder: (context, constraints) {
             final isDesktop = isDesktopWidth(constraints.maxWidth);
-            return responsiveContentShell(
-              child: ListView(
-                physics: const AlwaysScrollableScrollPhysics(),
-                padding: const EdgeInsets.fromLTRB(16, 8, 16, 28),
-                children: [
+            return ListView(
+              physics: const AlwaysScrollableScrollPhysics(),
+              padding: const EdgeInsets.only(top: 8, bottom: 28),
+              children: [
+                responsiveContentShell(
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 16),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: [
                   Text(
                     _lineaSaludo(),
                     style: GoogleFonts.publicSans(
@@ -335,16 +425,7 @@ class _HomeScreenState extends State<HomeScreen> {
                   const SizedBox(height: 24),
                   _buildQuickActions(isDesktop),
                   const SizedBox(height: 12),
-                  _QuickActionCard(
-                    icon: Icons.bar_chart_rounded,
-                    iconColor: const Color(0xFF815100),
-                    title: 'Indicadores',
-                    subtitle: 'Disponible próximamente',
-                    muted: true,
-                    onTap: () => _snackProximamente(
-                      'Indicadores en preparación.',
-                    ),
-                  ),
+                  if (!_loading) _buildSectorTopQuickCard(),
                   const SizedBox(height: 28),
                   Text(
                     'Estado actual',
@@ -366,7 +447,7 @@ class _HomeScreenState extends State<HomeScreen> {
                           const SizedBox(width: 6),
                           Expanded(
                             child: Text(
-                              '$_sectoresActivos sectores territoriales activos en catálogo.',
+                              '$_sectoresActivos sectores territoriales activos.',
                               style: GoogleFonts.inter(
                                 fontSize: 12,
                                 height: 1.35,
@@ -602,8 +683,11 @@ class _HomeScreenState extends State<HomeScreen> {
                       ),
                     ),
                   ),
-                ],
-              ),
+                      ],
+                    ),
+                  ),
+                ),
+              ],
             );
           },
         ),
@@ -941,7 +1025,7 @@ class _TotalMetricCard extends StatelessWidget {
                   ),
                   const SizedBox(height: 4),
                   Text(
-                    'TOTAL CASOS',
+                    'Total casos',
                     style: GoogleFonts.inter(
                       fontSize: 12,
                       fontWeight: FontWeight.w600,
@@ -1006,7 +1090,7 @@ class _StatusMetricCard extends StatelessWidget {
           ),
           const SizedBox(height: 4),
           Text(
-            caption.toUpperCase(),
+            caption,
             style: GoogleFonts.inter(
               fontSize: 12,
               fontWeight: FontWeight.w600,

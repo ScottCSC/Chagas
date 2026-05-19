@@ -139,6 +139,7 @@ class VerScreenState extends State<VerScreen> {
   Map<int, String> _sectorEtiquetaPorId = {};
   String? _generoFiltro;
   int? _sectorFiltroId;
+  String? _sectorFiltroNombre;
   DateTime? _fechaDesde;
   DateTime? _fechaHasta;
   String _ordenFecha = 'recientes';
@@ -194,6 +195,33 @@ class VerScreenState extends State<VerScreen> {
       _dateFilter = 'all';
       _query = '';
       _qCtrl.clear();
+    });
+  }
+
+  void applySectorFiltro({required int sectorId, String? sectorNombre}) {
+    if (!mounted) return;
+    setState(() {
+      _sectorFiltroId = sectorId;
+      _sectorFiltroNombre = sectorNombre?.trim().isNotEmpty == true
+          ? sectorNombre!.trim()
+          : null;
+    });
+  }
+
+  String? get _sectorFiltroEtiqueta {
+    if (_sectorFiltroId == null) return null;
+    final fromMap = _sectorNombrePorId[_sectorFiltroId!];
+    if (fromMap != null && fromMap.isNotEmpty) return fromMap;
+    if (_sectorFiltroNombre != null && _sectorFiltroNombre!.isNotEmpty) {
+      return _sectorFiltroNombre;
+    }
+    return 'Sector #$_sectorFiltroId';
+  }
+
+  void _quitarFiltroSector() {
+    setState(() {
+      _sectorFiltroId = null;
+      _sectorFiltroNombre = null;
     });
   }
 
@@ -275,6 +303,7 @@ class VerScreenState extends State<VerScreen> {
       _qCtrl.clear();
       _generoFiltro = null;
       _sectorFiltroId = null;
+      _sectorFiltroNombre = null;
       _fechaDesde = null;
       _fechaHasta = null;
       _ordenFecha = 'recientes';
@@ -856,14 +885,13 @@ class VerScreenState extends State<VerScreen> {
         ),
       ),
       body: SafeArea(
-        child: Align(
-          alignment: Alignment.topCenter,
-          child: ConstrainedBox(
-            constraints: const BoxConstraints(maxWidth: kContentMaxWidth),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-            Padding(
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            responsiveContentShell(
+              child: SizedBox(
+                width: double.infinity,
+                child: Padding(
               padding: const EdgeInsets.fromLTRB(16, 4, 16, 8),
               child: Text(
                 'Registro epidemiológico territorial',
@@ -873,8 +901,13 @@ class VerScreenState extends State<VerScreen> {
                   color: _VerTokens.gunPowder,
                 ),
               ),
+              ),
+              ),
             ),
-            Padding(
+            responsiveContentShell(
+              child: SizedBox(
+                width: double.infinity,
+                child: Padding(
               padding: const EdgeInsets.symmetric(horizontal: 16),
               child: Wrap(
                 spacing: 8,
@@ -917,6 +950,22 @@ class VerScreenState extends State<VerScreen> {
                       side: const BorderSide(color: _VerTokens.blueHaze),
                       backgroundColor: _VerTokens.cardSurface,
                     ),
+                  if (_sectorFiltroId != null)
+                    InputChip(
+                      padding: EdgeInsets.zero,
+                      visualDensity: VisualDensity.compact,
+                      label: Text(
+                        'Sector: ${_sectorFiltroEtiqueta ?? '—'}',
+                        style: GoogleFonts.inter(fontSize: 12),
+                      ),
+                      deleteIcon: const Icon(Icons.close, size: 14),
+                      onDeleted: () {
+                        HapticFeedback.selectionClick();
+                        _quitarFiltroSector();
+                      },
+                      side: const BorderSide(color: _VerTokens.blueHaze),
+                      backgroundColor: _VerTokens.cardSurface,
+                    ),
                   if (_tieneFiltros)
                     TextButton.icon(
                       onPressed: _limpiar,
@@ -932,9 +981,12 @@ class VerScreenState extends State<VerScreen> {
                     ),
                 ],
               ),
+              ),
+              ),
             ),
             const SizedBox(height: 4),
-            Padding(
+            responsiveContentShell(
+              child: Padding(
               padding: const EdgeInsets.symmetric(horizontal: 16),
               child: _SearchBar(
                 controller: _qCtrl,
@@ -942,15 +994,18 @@ class VerScreenState extends State<VerScreen> {
                 onOpenAdvancedFilters: _openAdvancedFilters,
                 advancedFiltersCount: _cantidadFiltrosAvanzadosActivos,
               ),
+              ),
             ),
             const SizedBox(height: 12),
-            _StatusFilterChips(
+            responsiveContentShell(
+              child: _StatusFilterChips(
               filtro: _filtro,
               contadores: _contadoresFiltros,
               onSelected: (f) {
                 HapticFeedback.selectionClick();
                 setState(() => _filtro = f);
               },
+              ),
             ),
             const SizedBox(height: 8),
             Expanded(
@@ -963,9 +1018,7 @@ class VerScreenState extends State<VerScreen> {
                 ),
               ),
             ),
-              ],
-            ),
-          ),
+          ],
         ),
       ),
     );
@@ -1030,7 +1083,7 @@ class VerScreenState extends State<VerScreen> {
       child: ListView.separated(
         controller: _scrollController,
         physics: const AlwaysScrollableScrollPhysics(),
-        padding: const EdgeInsets.fromLTRB(16, 8, 16, 20),
+        padding: const EdgeInsets.fromLTRB(0, 8, 0, 20),
         itemCount: filtrados.length,
         separatorBuilder: (context, index) => const SizedBox(height: 10),
         itemBuilder: (context, i) {
@@ -1065,19 +1118,27 @@ class VerScreenState extends State<VerScreen> {
               },
             ),
           );
-          if (_animatedOnce) return card;
-          return TweenAnimationBuilder<double>(
-            key: ValueKey('anim_$idCaso'),
-            tween: Tween(begin: 0, end: 1),
-            duration: Duration(milliseconds: 160 + (i.clamp(0, 8) * 18)),
-            builder: (_, v, child) => Opacity(
-              opacity: v,
-              child: Transform.translate(
-                offset: Offset(0, (1 - v) * 6),
-                child: child,
+          Widget item = card;
+          if (!_animatedOnce) {
+            item = TweenAnimationBuilder<double>(
+              key: ValueKey('anim_$idCaso'),
+              tween: Tween(begin: 0, end: 1),
+              duration: Duration(milliseconds: 160 + (i.clamp(0, 8) * 18)),
+              builder: (_, v, child) => Opacity(
+                opacity: v,
+                child: Transform.translate(
+                  offset: Offset(0, (1 - v) * 6),
+                  child: child,
+                ),
               ),
+              child: card,
+            );
+          }
+          return responsiveContentShell(
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 16),
+              child: item,
             ),
-            child: card,
           );
         },
       ),
@@ -1390,7 +1451,7 @@ class _CaseCard extends StatelessWidget {
                         mainAxisAlignment: MainAxisAlignment.spaceBetween,
                         crossAxisAlignment: CrossAxisAlignment.center,
                         children: [
-                          Expanded(
+                          Flexible(
                             child: Text(
                               codigo,
                               maxLines: 1,

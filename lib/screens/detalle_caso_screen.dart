@@ -3,6 +3,7 @@ import 'package:flutter/services.dart';
 import 'package:pdf/pdf.dart';
 import 'package:pdf/widgets.dart' as pw;
 import 'package:printing/printing.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../models/caso_epidemiologico.dart';
 import '../models/historial_estado_caso.dart';
@@ -10,7 +11,9 @@ import '../models/sector.dart';
 import '../repositories/app_repositories.dart';
 import '../utils/epi_db_constants.dart';
 import '../utils/epi_edad.dart';
+import '../utils/epi_identificador_parcial.dart';
 import '../utils/epidemiologia_ui.dart';
+import '../utils/identificador_parcial_input_formatter.dart';
 import '../utils/responsive_layout.dart';
 
 // ────────────────────────────────────────────────────────────────────────────
@@ -272,8 +275,10 @@ class _DetalleCasoSkeletonState extends State<_DetalleCasoSkeleton>
                 borderRadius: 8,
               ),
               const SizedBox(width: 12),
-              _SkeletonBox(shimmer: shimmer, width: 180, height: 22),
-              const Spacer(),
+              Expanded(
+                child: _SkeletonBox(shimmer: shimmer, height: 22),
+              ),
+              const SizedBox(width: 12),
               _SkeletonBox(
                 shimmer: shimmer,
                 width: 90,
@@ -353,29 +358,86 @@ class _DetalleCasoSkeletonState extends State<_DetalleCasoSkeleton>
           top: BorderSide(color: borderColorNeutro, width: 0.5),
         ),
       ),
-      child: Row(
-        children: [
-          _SkeletonBox(
-            shimmer: shimmer,
-            width: 140,
-            height: 38,
-            borderRadius: 8,
-          ),
-          const SizedBox(width: 8),
-          _SkeletonBox(
-            shimmer: shimmer,
-            width: 160,
-            height: 38,
-            borderRadius: 8,
-          ),
-          const Spacer(),
-          _SkeletonBox(
-            shimmer: shimmer,
-            width: 150,
-            height: 38,
-            borderRadius: 8,
-          ),
-        ],
+      child: LayoutBuilder(
+        builder: (context, constraints) {
+          if (constraints.maxWidth < 600) {
+            return Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                Row(
+                  children: [
+                    Expanded(
+                      child: _SkeletonBox(
+                        shimmer: shimmer,
+                        height: 38,
+                        borderRadius: 8,
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: _SkeletonBox(
+                        shimmer: shimmer,
+                        height: 38,
+                        borderRadius: 8,
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 8),
+                Row(
+                  children: [
+                    Expanded(
+                      child: _SkeletonBox(
+                        shimmer: shimmer,
+                        height: 38,
+                        borderRadius: 8,
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    _SkeletonBox(
+                      shimmer: shimmer,
+                      width: 48,
+                      height: 38,
+                      borderRadius: 8,
+                    ),
+                  ],
+                ),
+              ],
+            );
+          }
+          return Row(
+            children: [
+              _SkeletonBox(
+                shimmer: shimmer,
+                width: 130,
+                height: 38,
+                borderRadius: 8,
+              ),
+              const SizedBox(width: 8),
+              _SkeletonBox(
+                shimmer: shimmer,
+                width: 110,
+                height: 38,
+                borderRadius: 8,
+              ),
+              const SizedBox(width: 8),
+              _SkeletonBox(
+                shimmer: shimmer,
+                width: 150,
+                height: 38,
+                borderRadius: 8,
+              ),
+              const Spacer(),
+              _SkeletonBox(
+                shimmer: shimmer,
+                width: 48,
+                height: 38,
+                borderRadius: 8,
+              ),
+            ],
+          );
+        },
       ),
     );
 
@@ -408,11 +470,48 @@ class _DetalleCasoScreenState extends State<DetalleCasoScreen> {
   bool _isSavingEstado = false;
   bool _isSavingObservacion = false;
   bool _isExporting = false;
+  bool _isSavingDatos = false;
+
+  List<String> _ocupaciones = [];
+  bool _ocupacionesCargando = true;
 
   @override
   void initState() {
     super.initState();
     _cargar();
+    _cargarOcupaciones();
+  }
+
+  Future<void> _cargarOcupaciones() async {
+    if (mounted && !_ocupacionesCargando) {
+      setState(() => _ocupacionesCargando = true);
+    }
+    try {
+      final response = await Supabase.instance.client
+          .from('catalogo_ocupaciones')
+          .select('nombre')
+          .eq('activo', true)
+          .order('orden', ascending: true);
+      if (!mounted) return;
+      setState(() {
+        _ocupaciones = (response as List)
+            .map((e) => e['nombre'].toString())
+            .toList();
+        _ocupacionesCargando = false;
+      });
+    } catch (_) {
+      if (!mounted) return;
+      setState(() {
+        _ocupaciones = [];
+        _ocupacionesCargando = false;
+      });
+    }
+  }
+
+  bool _esMismaFecha(DateTime? a, DateTime? b) {
+    if (a == null && b == null) return true;
+    if (a == null || b == null) return false;
+    return a.year == b.year && a.month == b.month && a.day == b.day;
   }
 
   Future<void> _cargar() async {
@@ -682,6 +781,337 @@ class _DetalleCasoScreenState extends State<DetalleCasoScreen> {
       _showError('No se pudo actualizar la observación.');
     } finally {
       if (mounted) setState(() => _isSavingObservacion = false);
+    }
+  }
+
+  // TODO(epi): Al confirmar cambios en identificador_parcial, fecha_nacimiento
+  // o genero, ejecutar buscarPosiblesDuplicados() con los nuevos valores
+  // y alertar al operador si existe otro caso con misma combinación en el sector.
+  // Ver: idx_casos_duplicado_parcial en casos_epidemiologicos.
+  Future<void> _openEditarDatosDialog() async {
+    final caso = _caso;
+    if (caso == null || caso.idCaso == null) return;
+    if (_isSavingDatos) return;
+
+    if (_ocupacionesCargando) {
+      await _cargarOcupaciones();
+      if (!mounted) return;
+    }
+
+    final formKey = GlobalKey<FormState>();
+    final identCtrl =
+        TextEditingController(text: caso.identificadorParcial ?? '');
+    final contactosCtrl = TextEditingController(
+      text: (caso.numeroContactos ?? 0).toString(),
+    );
+    String? genero = caso.genero;
+    DateTime? fechaNac = caso.fechaNacimiento;
+    final ocupOriginal = caso.ocupacion?.trim();
+    final tieneOcupOriginal =
+        ocupOriginal != null && ocupOriginal.isNotEmpty;
+    // Si la ocupación guardada no está en el catálogo actual, inicializar
+    // como null y mostrar aviso informativo bajo el dropdown.
+    final ocupacionInicial =
+        (tieneOcupOriginal && _ocupaciones.contains(ocupOriginal))
+            ? ocupOriginal
+            : null;
+    final mostrarAvisoNoEnCatalogo =
+        tieneOcupOriginal && !_ocupaciones.contains(ocupOriginal);
+    String? ocupacion = ocupacionInicial;
+
+    try {
+      final resultado = await showDialog<Map<String, dynamic>>(
+      context: context,
+      builder: (dialogContext) {
+        return StatefulBuilder(
+          builder: (ctx, setModalState) {
+            final cs = Theme.of(ctx).colorScheme;
+            final ocupaciones = _ocupaciones;
+
+            final edad = fechaNac == null ? null : calcularEdad(fechaNac!);
+            final fechaTexto = fechaNac == null
+                ? 'Seleccionar fecha'
+                : _fmtFecha(fechaNac);
+
+            bool hayCambios() {
+              final idp = identCtrl.text.trim().toUpperCase();
+              final origIdp = (caso.identificadorParcial ?? '').toUpperCase();
+              final contactos = int.tryParse(contactosCtrl.text.trim()) ?? 0;
+              final origContactos = caso.numeroContactos ?? 0;
+              final ocupIgual = (ocupacion ?? '') == (ocupacionInicial ?? '');
+              return idp != origIdp ||
+                  genero != caso.genero ||
+                  !_esMismaFecha(fechaNac, caso.fechaNacimiento) ||
+                  !ocupIgual ||
+                  contactos != origContactos;
+            }
+
+            return AlertDialog(
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(16),
+              ),
+              title: const Text('Editar datos del caso'),
+              content: SizedBox(
+                width: 480,
+                child: SingleChildScrollView(
+                  child: Form(
+                    key: formKey,
+                    autovalidateMode: AutovalidateMode.onUserInteraction,
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: [
+                        TextFormField(
+                          controller: identCtrl,
+                          decoration: const InputDecoration(
+                            labelText: 'Identificador parcial',
+                            hintText: '123-4 o 123-K',
+                            helperText:
+                                'Últimos 3 dígitos + dígito verificador. No ingresar RUT completo.',
+                            helperMaxLines: 2,
+                            border: OutlineInputBorder(),
+                          ),
+                          inputFormatters: [
+                            IdentificadorParcialInputFormatter(),
+                          ],
+                          textCapitalization: TextCapitalization.characters,
+                          validator: validarIdentificadorParcial,
+                          onChanged: (_) => setModalState(() {}),
+                        ),
+                        const SizedBox(height: 14),
+                        DropdownButtonFormField<String>(
+                          initialValue: genero,
+                          isExpanded: true,
+                          decoration: const InputDecoration(
+                            labelText: 'Género',
+                            border: OutlineInputBorder(),
+                          ),
+                          items: const [
+                            DropdownMenuItem(
+                              value: EpiGenero.femenino,
+                              child: Text('Femenino'),
+                            ),
+                            DropdownMenuItem(
+                              value: EpiGenero.masculino,
+                              child: Text('Masculino'),
+                            ),
+                            DropdownMenuItem(
+                              value: EpiGenero.noInforma,
+                              child: Text('No informa'),
+                            ),
+                          ],
+                          validator: (v) =>
+                              (v == null || v.isEmpty) ? 'Seleccione género' : null,
+                          onChanged: (v) => setModalState(() => genero = v),
+                        ),
+                        const SizedBox(height: 14),
+                        InputDecorator(
+                          decoration: InputDecoration(
+                            labelText: 'Fecha de nacimiento',
+                            border: const OutlineInputBorder(),
+                            helperText: edad != null
+                                ? 'Edad calculada: $edad años'
+                                : 'Requerida',
+                            errorText: fechaNac != null &&
+                                    fechaNac!.isAfter(DateTime.now())
+                                ? 'No se permite fecha futura'
+                                : null,
+                          ),
+                          child: Row(
+                            children: [
+                              Expanded(
+                                child: Text(
+                                  fechaTexto,
+                                  style: TextStyle(
+                                    color: fechaNac == null
+                                        ? cs.onSurfaceVariant
+                                        : cs.onSurface,
+                                  ),
+                                ),
+                              ),
+                              TextButton.icon(
+                                onPressed: () async {
+                                  final hoy = DateTime.now();
+                                  final initial = fechaNac ??
+                                      DateTime(hoy.year - 30, hoy.month, hoy.day);
+                                  final picked = await showDatePicker(
+                                    context: ctx,
+                                    initialDate: initial,
+                                    firstDate: fechaNacimientoMinimaPermitida(),
+                                    lastDate: hoy,
+                                  );
+                                  if (picked != null) {
+                                    setModalState(() => fechaNac = picked);
+                                  }
+                                },
+                                icon: const Icon(
+                                  Icons.calendar_today_outlined,
+                                  size: 18,
+                                ),
+                                label: const Text('Seleccionar'),
+                              ),
+                            ],
+                          ),
+                        ),
+                        const SizedBox(height: 14),
+                        DropdownButtonFormField<String>(
+                          initialValue: ocupacion,
+                          isExpanded: true,
+                          decoration: InputDecoration(
+                            labelText: 'Ocupación',
+                            hintText: _ocupacionesCargando
+                                ? 'Cargando ocupaciones…'
+                                : 'Seleccionar ocupación',
+                            border: const OutlineInputBorder(),
+                          ),
+                          disabledHint: const Text('Cargando ocupaciones…'),
+                          items: _ocupacionesCargando
+                              ? const <DropdownMenuItem<String>>[]
+                              : [
+                                  DropdownMenuItem<String>(
+                                    value: null,
+                                    child: Text(
+                                      'No informado',
+                                      style: TextStyle(
+                                        fontStyle: FontStyle.italic,
+                                        color: cs.onSurfaceVariant,
+                                      ),
+                                    ),
+                                  ),
+                                  ...ocupaciones.map(
+                                    (o) => DropdownMenuItem<String>(
+                                      value: o,
+                                      child: Text(
+                                        o,
+                                        overflow: TextOverflow.ellipsis,
+                                      ),
+                                    ),
+                                  ),
+                                ],
+                          onChanged: _ocupacionesCargando
+                              ? null
+                              : (v) => setModalState(() => ocupacion = v),
+                        ),
+                        if (mostrarAvisoNoEnCatalogo)
+                          Padding(
+                            padding: const EdgeInsets.only(top: 4),
+                            child: Text(
+                              'Valor anterior: "$ocupOriginal" (no está en el catálogo actual)',
+                              style: TextStyle(
+                                fontSize: 11,
+                                color: cs.onSurfaceVariant,
+                                fontStyle: FontStyle.italic,
+                              ),
+                            ),
+                          ),
+                        const SizedBox(height: 14),
+                        TextFormField(
+                          controller: contactosCtrl,
+                          decoration: const InputDecoration(
+                            labelText: 'Número de contactos',
+                            border: OutlineInputBorder(),
+                            counterText: '',
+                          ),
+                          keyboardType: TextInputType.number,
+                          inputFormatters: [
+                            FilteringTextInputFormatter.digitsOnly,
+                          ],
+                          maxLength: 3,
+                          validator: (v) {
+                            if (v == null || v.trim().isEmpty) {
+                              return 'Ingrese un número';
+                            }
+                            final n = int.tryParse(v.trim());
+                            if (n == null || n < 0 || n > 999) {
+                              return 'Debe estar entre 0 y 999';
+                            }
+                            return null;
+                          },
+                          onChanged: (_) => setModalState(() {}),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.pop(dialogContext),
+                  child: const Text('Cancelar'),
+                ),
+                ElevatedButton(
+                  onPressed: hayCambios()
+                      ? () {
+                          if (fechaNac == null) {
+                            setModalState(() {});
+                            return;
+                          }
+                          if (formKey.currentState?.validate() != true) return;
+                          Navigator.pop(dialogContext, <String, dynamic>{
+                            'identificadorParcial':
+                                identCtrl.text.trim().toUpperCase(),
+                            'genero': genero,
+                            'fechaNacimiento': fechaNac,
+                            'ocupacion': ocupacion,
+                            'numeroContactos':
+                                int.parse(contactosCtrl.text.trim()),
+                          });
+                        }
+                      : null,
+                  child: const Text('Guardar cambios'),
+                ),
+              ],
+            );
+          },
+        );
+      },
+    );
+
+      if (!mounted) return;
+      if (resultado != null) {
+        await _actualizarDatosCaso(
+          identificadorParcial: resultado['identificadorParcial'] as String,
+          genero: resultado['genero'] as String,
+          fechaNacimiento: resultado['fechaNacimiento'] as DateTime,
+          ocupacion: resultado['ocupacion'] as String?,
+          numeroContactos: resultado['numeroContactos'] as int,
+        );
+      }
+    } finally {
+      identCtrl.dispose();
+      contactosCtrl.dispose();
+    }
+  }
+
+  Future<void> _actualizarDatosCaso({
+    required String identificadorParcial,
+    required String genero,
+    required DateTime fechaNacimiento,
+    required String? ocupacion,
+    required int numeroContactos,
+  }) async {
+    final idCaso = _caso?.idCaso;
+    if (idCaso == null) return;
+    if (_isSavingDatos) return;
+    setState(() => _isSavingDatos = true);
+    try {
+      final actualizado = await _casoRepo.updateDatosCaso(
+        idCaso: idCaso,
+        identificadorParcial: identificadorParcial,
+        genero: genero,
+        fechaNacimiento: fechaNacimiento,
+        ocupacion: ocupacion,
+        numeroContactos: numeroContactos,
+      );
+      if (!mounted) return;
+      setState(() => _caso = actualizado);
+      _showSuccess('Datos del caso actualizados correctamente');
+    } catch (e, st) {
+      debugPrint('DetalleCasoScreen _actualizarDatosCaso: $e');
+      debugPrintStack(stackTrace: st);
+      _showError('No se pudieron actualizar los datos del caso.');
+    } finally {
+      if (mounted) setState(() => _isSavingDatos = false);
     }
   }
 
@@ -1086,10 +1516,12 @@ class _DetalleCasoScreenState extends State<DetalleCasoScreen> {
 
     final barraAcciones = _BarraAccionesDetalle(
       onCambiarEstado: _isSavingEstado ? null : _openCambiarEstadoDialog,
+      onEditarDatos: _isSavingDatos ? null : _openEditarDatosDialog,
       onEditarObservacion:
           _isSavingObservacion ? null : _openEditarObservacionDialog,
       onExportar: _isExporting ? null : _exportarRegistroPdf,
       cambiandoEstado: _isSavingEstado,
+      guardandoDatos: _isSavingDatos,
       guardandoObservacion: _isSavingObservacion,
       exportando: _isExporting,
     );
@@ -2197,17 +2629,21 @@ class _BloqueObservacionGeneral extends StatelessWidget {
 
 class _BarraAccionesDetalle extends StatelessWidget {
   final VoidCallback? onCambiarEstado;
+  final VoidCallback? onEditarDatos;
   final VoidCallback? onEditarObservacion;
   final VoidCallback? onExportar;
   final bool cambiandoEstado;
+  final bool guardandoDatos;
   final bool guardandoObservacion;
   final bool exportando;
 
   const _BarraAccionesDetalle({
     required this.onCambiarEstado,
+    required this.onEditarDatos,
     required this.onEditarObservacion,
     required this.onExportar,
     this.cambiandoEstado = false,
+    this.guardandoDatos = false,
     this.guardandoObservacion = false,
     this.exportando = false,
   });
@@ -2239,7 +2675,24 @@ class _BarraAccionesDetalle extends StatelessWidget {
           borderRadius: BorderRadius.circular(10),
         ),
         padding:
-            const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+            const EdgeInsets.symmetric(horizontal: 10, vertical: 12),
+      ),
+    );
+
+    final btnDatos = OutlinedButton.icon(
+      onPressed: onEditarDatos,
+      icon: guardandoDatos
+          ? _spinner(cs.onSurface)
+          : const Icon(Icons.tune_outlined, size: 18),
+      label: Text(guardandoDatos ? 'Guardando…' : 'Editar datos'),
+      style: OutlinedButton.styleFrom(
+        foregroundColor: cs.onSurface,
+        side: BorderSide(color: cs.outlineVariant),
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(10),
+        ),
+        padding:
+            const EdgeInsets.symmetric(horizontal: 10, vertical: 12),
       ),
     );
 
@@ -2257,24 +2710,22 @@ class _BarraAccionesDetalle extends StatelessWidget {
           borderRadius: BorderRadius.circular(10),
         ),
         padding:
-            const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+            const EdgeInsets.symmetric(horizontal: 10, vertical: 12),
       ),
     );
 
-    final btnExportar = OutlinedButton.icon(
+    final exportIconBtn = IconButton(
       onPressed: onExportar,
+      tooltip: 'Exportar registro',
       icon: exportando
           ? _spinner(cs.onSurfaceVariant)
-          : const Icon(Icons.print_outlined, size: 18),
-      label: Text(exportando ? 'Exportando…' : 'Exportar registro'),
-      style: OutlinedButton.styleFrom(
+          : const Icon(Icons.print_outlined, size: 20),
+      style: IconButton.styleFrom(
         foregroundColor: cs.onSurfaceVariant,
         side: BorderSide(color: cs.outlineVariant),
         shape: RoundedRectangleBorder(
           borderRadius: BorderRadius.circular(10),
         ),
-        padding:
-            const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
       ),
     );
 
@@ -2291,21 +2742,38 @@ class _BarraAccionesDetalle extends StatelessWidget {
             const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
         child: LayoutBuilder(
           builder: (ctx, c) {
-            if (c.maxWidth < 520) {
-              return Wrap(
-                spacing: 8,
-                runSpacing: 8,
-                alignment: WrapAlignment.center,
-                children: [btnCambiar, btnObservacion, btnExportar],
+            if (c.maxWidth < 600) {
+              return Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  Row(
+                    children: [
+                      Expanded(child: btnCambiar),
+                      const SizedBox(width: 8),
+                      Expanded(child: btnDatos),
+                    ],
+                  ),
+                  const SizedBox(height: 8),
+                  Row(
+                    children: [
+                      Expanded(child: btnObservacion),
+                      const SizedBox(width: 8),
+                      exportIconBtn,
+                    ],
+                  ),
+                ],
               );
             }
             return Row(
               children: [
                 btnCambiar,
-                const SizedBox(width: 12),
+                const SizedBox(width: 8),
+                btnDatos,
+                const SizedBox(width: 8),
                 btnObservacion,
                 const Spacer(),
-                btnExportar,
+                exportIconBtn,
               ],
             );
           },

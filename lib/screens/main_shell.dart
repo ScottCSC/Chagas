@@ -26,6 +26,8 @@ class _MainShellState extends State<MainShell> {
     int index, {
     bool focusVerSearch = false,
     FiltroVer? verEstadoFiltro,
+    int? verSectorFiltroId,
+    String? verSectorFiltroNombre,
   }) {
     setState(() => _index = index);
     if (index != 2) return;
@@ -34,6 +36,12 @@ class _MainShellState extends State<MainShell> {
       if (ver == null) return;
       if (verEstadoFiltro != null) {
         ver.applyEstadoFiltro(verEstadoFiltro);
+      }
+      if (verSectorFiltroId != null) {
+        ver.applySectorFiltro(
+          sectorId: verSectorFiltroId,
+          sectorNombre: verSectorFiltroNombre,
+        );
       }
       await ver.refreshCasosDesdeServidor();
       if (!mounted) return;
