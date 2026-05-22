@@ -742,14 +742,51 @@ class _DetalleCasoScreenState extends State<DetalleCasoScreen> {
             ),
           ),
           actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(dialogContext),
-              child: const Text('Cancelar'),
-            ),
-            ElevatedButton(
-              onPressed: () =>
-                  Navigator.pop(dialogContext, controller.text.trim()),
-              child: const Text('Guardar observación'),
+            Builder(
+              builder: (ctx) {
+                final ancho = MediaQuery.of(ctx).size.width;
+                if (ancho < 500) {
+                  return SizedBox(
+                    width: double.maxFinite,
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: [
+                        ElevatedButton(
+                          onPressed: () => Navigator.pop(
+                            dialogContext,
+                            controller.text.trim(),
+                          ),
+                          child: const Text('Guardar observación'),
+                        ),
+                        const SizedBox(height: 8),
+                        TextButton(
+                          onPressed: () => Navigator.pop(dialogContext),
+                          child: const Text('Cancelar'),
+                        ),
+                      ],
+                    ),
+                  );
+                }
+                return Row(
+                  mainAxisAlignment: MainAxisAlignment.end,
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    TextButton(
+                      onPressed: () => Navigator.pop(dialogContext),
+                      child: const Text('Cancelar'),
+                    ),
+                    const SizedBox(width: 8),
+                    ElevatedButton(
+                      onPressed: () => Navigator.pop(
+                        dialogContext,
+                        controller.text.trim(),
+                      ),
+                      child: const Text('Guardar observación'),
+                    ),
+                  ],
+                );
+              },
             ),
           ],
         );
@@ -971,7 +1008,7 @@ class _DetalleCasoScreenState extends State<DetalleCasoScreen> {
                                   DropdownMenuItem<String>(
                                     value: null,
                                     child: Text(
-                                      'No informado',
+                                      'No informa',
                                       style: TextStyle(
                                         fontStyle: FontStyle.italic,
                                         color: cs.onSurfaceVariant,
@@ -1168,21 +1205,12 @@ class _DetalleCasoScreenState extends State<DetalleCasoScreen> {
     final estadoLabel =
         EpidemiologiaUi.getEstadoCasoLabel(caso.estadoActual ?? '');
     final generoLabel = EpidemiologiaUi.generoLabelEpi(caso.genero);
-    final edad = edadEfectivaCaso(caso);
-    final edadStr =
-        edad == null ? 'No informado' : '$edad ${edad == 1 ? 'año' : 'años'}';
     final sectorNombre = sector?.nombreSector ?? 'No informado';
     final comuna = sector?.comuna ?? 'No informado';
     final contactosStr =
         caso.numeroContactos != null ? '${caso.numeroContactos}' : '0';
     final observacionRaw = (caso.observacionGeneral ?? '').trim();
     final ahora = DateTime.now();
-    final centroideStr = (sector != null &&
-            sector.latitudCentroide != null &&
-            sector.longitudCentroide != null)
-        ? '${sector.latitudCentroide!.toStringAsFixed(5)}, '
-            '${sector.longitudCentroide!.toStringAsFixed(5)}'
-        : 'No informado';
 
     const PdfColor brandBlue = PdfColor.fromInt(0xFF2563EB);
     const PdfColor textPrimary = PdfColor.fromInt(0xFF2C2C2A);
@@ -1394,7 +1422,7 @@ class _DetalleCasoScreenState extends State<DetalleCasoScreen> {
               sectionLabel('Datos epidemiológicos'),
               gridTwo([
                 field('Género', generoLabel),
-                field('Edad calculada', edadStr),
+                field('Fecha de nacimiento', fmtDia(caso.fechaNacimiento)),
                 field('Ocupación', value(caso.ocupacion)),
                 field('Número de contactos', contactosStr),
               ]),
@@ -1405,8 +1433,6 @@ class _DetalleCasoScreenState extends State<DetalleCasoScreen> {
               gridTwo([
                 field('Sector territorial', sectorNombre),
                 field('Comuna', comuna),
-                field('Centroide ref.', centroideStr),
-                pw.SizedBox(),
               ]),
               pw.SizedBox(height: 4),
               pw.Text(
@@ -2232,10 +2258,12 @@ class _DatosCasoGrid extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final edadStr = () {
-      final e = edadEfectivaCaso(caso);
-      if (e == null) return '';
-      return '$e ${e == 1 ? 'año' : 'años'}';
+    final fechaNacStr = () {
+      final f = caso.fechaNacimiento;
+      if (f == null) return '';
+      final l = f.toLocal();
+      return '${l.day.toString().padLeft(2, '0')}/'
+          '${l.month.toString().padLeft(2, '0')}/${l.year}';
     }();
     final contactosStr =
         caso.numeroContactos != null ? '${caso.numeroContactos}' : '';
@@ -2252,8 +2280,8 @@ class _DatosCasoGrid extends StatelessWidget {
       ),
       _MiniCampo(
         icon: Icons.cake_outlined,
-        label: 'Edad',
-        value: edadStr,
+        label: 'Fecha de nacimiento',
+        value: fechaNacStr,
       ),
       _MiniCampo(
         icon: Icons.work_outline,
@@ -2406,30 +2434,6 @@ class _BloqueUbicacionTerritorial extends StatelessWidget {
                 label: 'Comuna',
                 value: s.comuna,
               ),
-              if (s.latitudCentroide != null &&
-                  s.longitudCentroide != null)
-                Align(
-                  alignment: Alignment.centerLeft,
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        'Centroide referencial',
-                        style: TextStyle(
-                          fontSize: 12,
-                          fontWeight: FontWeight.w600,
-                          color: cs.onSurfaceVariant,
-                        ),
-                      ),
-                      const SizedBox(height: 4),
-                      _DashedChip(
-                        icon: Icons.my_location,
-                        text:
-                            '${s.latitudCentroide!.toStringAsFixed(5)}, ${s.longitudCentroide!.toStringAsFixed(5)}',
-                      ),
-                    ],
-                  ),
-                ),
             ],
           ],
         ),
@@ -2437,82 +2441,6 @@ class _BloqueUbicacionTerritorial extends StatelessWidget {
       ],
     );
   }
-}
-
-class _DashedChip extends StatelessWidget {
-  final IconData icon;
-  final String text;
-
-  const _DashedChip({required this.icon, required this.text});
-
-  @override
-  Widget build(BuildContext context) {
-    final cs = Theme.of(context).colorScheme;
-    final fg = cs.onSurfaceVariant;
-    return CustomPaint(
-      painter: _DashedRoundedBorderPainter(color: cs.outlineVariant),
-      child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-        child: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Icon(icon, size: 14, color: fg),
-            const SizedBox(width: 6),
-            Text(
-              text,
-              style: TextStyle(fontSize: 12, color: fg),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-class _DashedRoundedBorderPainter extends CustomPainter {
-  final Color color;
-
-  static const double _radius = 999;
-  static const double _dashWidth = 4;
-  static const double _dashGap = 3;
-  static const double _strokeWidth = 1;
-
-  _DashedRoundedBorderPainter({required this.color});
-
-  @override
-  void paint(Canvas canvas, Size size) {
-    final r =
-        _radius > size.shortestSide / 2 ? size.shortestSide / 2 : _radius;
-    final rrect = RRect.fromRectAndRadius(
-      Offset.zero & size,
-      Radius.circular(r),
-    );
-    final source = Path()..addRRect(rrect);
-    final dashed = _dashPath(source);
-    final paint = Paint()
-      ..color = color
-      ..strokeWidth = _strokeWidth
-      ..style = PaintingStyle.stroke;
-    canvas.drawPath(dashed, paint);
-  }
-
-  static Path _dashPath(Path source) {
-    final dest = Path();
-    for (final metric in source.computeMetrics()) {
-      double distance = 0;
-      while (distance < metric.length) {
-        final next = distance + _dashWidth;
-        final end = next > metric.length ? metric.length : next;
-        dest.addPath(metric.extractPath(distance, end), Offset.zero);
-        distance = next + _dashGap;
-      }
-    }
-    return dest;
-  }
-
-  @override
-  bool shouldRepaint(covariant _DashedRoundedBorderPainter old) =>
-      old.color != color;
 }
 
 // ────────────────────────────────────────────────────────────────────────────

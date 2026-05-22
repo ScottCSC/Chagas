@@ -868,7 +868,7 @@ class _NuevoCasoScreenState extends State<NuevoCasoScreen> {
                               DropdownMenuItem<String>(
                                 value: null,
                                 child: Text(
-                                  'No informado',
+                                  'No informa',
                                   style: GoogleFonts.inter(
                                     fontSize: 16,
                                     fontStyle: FontStyle.italic,
