@@ -19,8 +19,18 @@ class _MainShellState extends State<MainShell> {
   int _index = 0;
 
   final GlobalKey<VerScreenState> _verScreenKey = GlobalKey<VerScreenState>();
+  final GlobalKey<HomeScreenState> _homeScreenKey =
+      GlobalKey<HomeScreenState>();
 
   late final List<Widget> _pages;
+
+  /// IndexedStack mantiene Home montada; al volver a Inicio se sincronizan
+  /// los KPIs con el servidor (p. ej. tras registrar desde la pestaña Nuevo caso).
+  void _refreshHome() {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _homeScreenKey.currentState?.refreshDesdeServidor();
+    });
+  }
 
   void _goToTab(
     int index, {
@@ -30,6 +40,10 @@ class _MainShellState extends State<MainShell> {
     String? verSectorFiltroNombre,
   }) {
     setState(() => _index = index);
+    if (index == 0) {
+      _refreshHome();
+      return;
+    }
     if (index != 2) return;
     WidgetsBinding.instance.addPostFrameCallback((_) async {
       final ver = _verScreenKey.currentState;
@@ -55,6 +69,10 @@ class _MainShellState extends State<MainShell> {
   /// mantiene el estado anterior si solo se llamaba `_load()` desde Inicio).
   void _onTabSelected(int i) {
     setState(() => _index = i);
+    if (i == 0) {
+      _refreshHome();
+      return;
+    }
     if (i != 2) return;
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _verScreenKey.currentState?.refreshCasosDesdeServidor();
@@ -65,7 +83,7 @@ class _MainShellState extends State<MainShell> {
   void initState() {
     super.initState();
     _pages = [
-      HomeScreen(onGoToTab: _goToTab),
+      HomeScreen(key: _homeScreenKey, onGoToTab: _goToTab),
       const NuevoCasoScreen(),
       VerScreen(key: _verScreenKey),
       const PerfilScreen(),
@@ -134,6 +152,7 @@ class _MainShellState extends State<MainShell> {
             if (didPop) return;
             if (_index != 0) {
               setState(() => _index = 0);
+              _refreshHome();
               return;
             }
             final salir = await showDialog<bool>(

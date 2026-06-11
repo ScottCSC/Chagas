@@ -12,14 +12,43 @@ Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
   const isDemo = bool.fromEnvironment('DEMO_MODE', defaultValue: false);
+  const supabaseUrlDefine = String.fromEnvironment('SUPABASE_URL');
+  const supabaseAnonKeyDefine = String.fromEnvironment('SUPABASE_ANON_KEY');
 
-  await dotenv.load(
-    fileName: isDemo ? '.env.demo' : '.env',
-  );
+  if (supabaseUrlDefine.isEmpty || supabaseAnonKeyDefine.isEmpty) {
+    try {
+      await dotenv.load(
+        fileName: isDemo ? '.env.demo' : '.env',
+      );
+    } catch (_) {
+      // Sin asset .env (p. ej. build web sin el archivo en pubspec): usar --dart-define.
+    }
+  }
+
+  String? envVar(String key) {
+    if (!dotenv.isInitialized) return null;
+    final v = dotenv.env[key]?.trim();
+    return (v == null || v.isEmpty) ? null : v;
+  }
+
+  final supabaseUrl =
+      supabaseUrlDefine.isNotEmpty ? supabaseUrlDefine : envVar('SUPABASE_URL');
+  final supabaseAnonKey = supabaseAnonKeyDefine.isNotEmpty
+      ? supabaseAnonKeyDefine
+      : envVar('SUPABASE_ANON_KEY');
+
+  if (supabaseUrl == null ||
+      supabaseUrl.isEmpty ||
+      supabaseAnonKey == null ||
+      supabaseAnonKey.isEmpty) {
+    throw StateError(
+      'Configura SUPABASE_URL y SUPABASE_ANON_KEY con --dart-define.',
+    );
+  }
 
   await Supabase.initialize(
-    url: dotenv.env['SUPABASE_URL']!,
-    anonKey: dotenv.env['SUPABASE_ANON_KEY']!,
+    url: supabaseUrl,
+    anonKey: supabaseAnonKey,
   );
 
   await NetworkService.instance.init();

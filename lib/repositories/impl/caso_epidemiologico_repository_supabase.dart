@@ -4,6 +4,7 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../models/caso_epidemiologico.dart';
 import '../../models/historial_estado_caso.dart';
 import '../../utils/epi_db_constants.dart';
+import '../../utils/epi_ocupacion.dart';
 import '../caso_epidemiologico_repository.dart';
 
 class CasoEpidemiologicoRepositorySupabase implements CasoEpidemiologicoRepository {
@@ -48,9 +49,12 @@ class CasoEpidemiologicoRepositorySupabase implements CasoEpidemiologicoReposito
     payload['id_sector'] = idSector;
 
     assert(!payload.containsKey('edad'));
-    debugPrint(
-      'Payload insert casos_epidemiologicos (kSupabaseEdadColumnEnabled=$kSupabaseEdadColumnEnabled): $payload',
-    );
+    if (kDebugMode) {
+      // Solo claves: nunca volcar valores del caso (datos epidemiológicos) a consola.
+      debugPrint(
+        'Insert casos_epidemiologicos (kSupabaseEdadColumnEnabled=$kSupabaseEdadColumnEnabled): columnas=${payload.keys.join(', ')}',
+      );
+    }
 
     final res = await _sb.from('casos_epidemiologicos').insert(payload).select().single();
     return CasoEpidemiologico.fromMap(Map<String, dynamic>.from(res));
@@ -109,15 +113,13 @@ class CasoEpidemiologicoRepositorySupabase implements CasoEpidemiologicoReposito
   }) async {
     final fecha =
         '${fechaNacimiento.year.toString().padLeft(4, '0')}-${fechaNacimiento.month.toString().padLeft(2, '0')}-${fechaNacimiento.day.toString().padLeft(2, '0')}';
-    final ocup = ocupacion?.trim();
-
     final res = await _sb
         .from('casos_epidemiologicos')
         .update({
           'identificador_parcial': identificadorParcial,
           'genero': genero,
           'fecha_nacimiento': fecha,
-          'ocupacion': (ocup == null || ocup.isEmpty) ? null : ocup,
+          'ocupacion': ocupacionParaPersistir(ocupacion),
           'numero_contactos': numeroContactos,
           'actualizado_en': DateTime.now().toUtc().toIso8601String(),
         })

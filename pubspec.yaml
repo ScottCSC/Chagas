@@ -69,9 +69,9 @@ flutter:
   uses-material-design: true
 
   assets:
-    - .env
-    - .env.demo
     - assets/images/chagas_tracker_logo.png
+  # SUPABASE_URL y SUPABASE_ANON_KEY: --dart-define en build/producción
+  # (ver docs/DEPLOY_WEB.md). No empaquetar .env en el bundle web.
 
   # An image asset can refer to one or more resolution-specific "variants", see
   # https://flutter.dev/to/resolution-aware-images

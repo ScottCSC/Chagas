@@ -8,6 +8,7 @@ import '../models/sector.dart';
 import '../repositories/app_repositories.dart';
 import '../utils/epi_db_constants.dart';
 import '../utils/epi_edad.dart';
+import '../utils/epi_ocupacion.dart';
 import '../utils/epi_identificador_parcial.dart';
 import '../utils/identificador_parcial_input_formatter.dart';
 import '../utils/epidemiologia_ui.dart';
@@ -45,6 +46,7 @@ class _NuevoCasoScreenState extends State<NuevoCasoScreen> {
   final _formKey = GlobalKey<FormState>();
   final _casoRepo = AppRepositories.casoEpidemiologico;
   final _sectorRepo = AppRepositories.sector;
+  final _catalogoRepo = AppRepositories.catalogo;
 
   final _numeroContactosCtrl = TextEditingController();
   final _obsCtrl = TextEditingController();
@@ -96,17 +98,15 @@ class _NuevoCasoScreenState extends State<NuevoCasoScreen> {
 
   Future<void> _cargarOcupaciones() async {
     try {
-      final response = await Supabase.instance.client
-          .from('catalogo_ocupaciones')
-          .select('nombre')
-          .eq('activo', true)
-          .order('orden', ascending: true);
+      final ocupaciones = await _catalogoRepo.getOcupacionesActivas();
       if (!mounted) return;
       setState(() {
-        _ocupaciones = (response as List)
-            .map((e) => e['nombre'].toString())
-            .toList();
+        _ocupaciones = ocupaciones.map((o) => o.nombre).toList();
         _ocupacionesCargando = false;
+        _ocupacionSeleccionada = ocupacionSeleccionFormulario(
+          _ocupacionSeleccionada,
+          _ocupaciones,
+        );
       });
     } catch (_) {
       if (!mounted) return;
@@ -516,7 +516,7 @@ class _NuevoCasoScreenState extends State<NuevoCasoScreen> {
         genero: _genero,
         fechaNacimiento: _fechaNacimiento,
         idSector: _idSector,
-        ocupacion: _ocupacionSeleccionada,
+        ocupacion: ocupacionParaPersistir(_ocupacionSeleccionada),
         estadoActual: _estadoActual,
         numeroContactos: numeroContactos,
         observacionGeneral:
@@ -864,21 +864,8 @@ class _NuevoCasoScreenState extends State<NuevoCasoScreen> {
                       ),
                       items: _ocupacionesCargando
                           ? const <DropdownMenuItem<String>>[]
-                          : [
-                              DropdownMenuItem<String>(
-                                value: null,
-                                child: Text(
-                                  'No informa',
-                                  style: GoogleFonts.inter(
-                                    fontSize: 16,
-                                    fontStyle: FontStyle.italic,
-                                    color: Theme.of(context)
-                                        .colorScheme
-                                        .onSurfaceVariant,
-                                  ),
-                                ),
-                              ),
-                              ..._ocupaciones.map(
+                          : _ocupaciones
+                              .map(
                                 (nombre) => DropdownMenuItem<String>(
                                   value: nombre,
                                   child: Text(
@@ -886,8 +873,8 @@ class _NuevoCasoScreenState extends State<NuevoCasoScreen> {
                                     overflow: TextOverflow.ellipsis,
                                   ),
                                 ),
-                              ),
-                            ],
+                              )
+                              .toList(),
                       onChanged: _ocupacionesCargando
                           ? null
                           : (val) =>

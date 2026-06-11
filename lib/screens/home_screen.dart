@@ -1,6 +1,5 @@
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
-import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../models/caso_epidemiologico.dart';
 import '../repositories/app_repositories.dart';
@@ -58,18 +57,20 @@ class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key, required this.onGoToTab});
 
   @override
-  State<HomeScreen> createState() => _HomeScreenState();
+  State<HomeScreen> createState() => HomeScreenState();
 }
 
-class _HomeScreenState extends State<HomeScreen> {
+class HomeScreenState extends State<HomeScreen> {
   final _casoRepo = AppRepositories.casoEpidemiologico;
   final _sectorRepo = AppRepositories.sector;
+  final _profileRepo = AppRepositories.profile;
 
   List<CasoEpidemiologico> _casos = [];
   Map<int, String> _nombreSectorPorId = {};
   bool _loading = true;
   int _sectoresActivos = 0;
   String? _profileDisplayName;
+  String? _errorCarga;
 
   @override
   void initState() {
@@ -77,15 +78,16 @@ class _HomeScreenState extends State<HomeScreen> {
     _load();
   }
 
+  /// Refresco desde MainShell (p. ej. al volver a Inicio tras registrar un caso).
+  Future<void> refreshDesdeServidor() => _load();
+
   Future<void> _load() async {
     if (!NetworkService.instance.isOnline) {
+      // Sin conexión: conservar los datos ya mostrados.
       if (mounted) {
         setState(() {
           _loading = false;
-          _casos = [];
-          _nombreSectorPorId = {};
-          _sectoresActivos = 0;
-          _profileDisplayName = null;
+          _errorCarga = 'Sin conexión. Se muestran los últimos datos cargados.';
         });
       }
       return;
@@ -106,18 +108,11 @@ class _HomeScreenState extends State<HomeScreen> {
         secMap = {for (final s in sectores) s.idSector: s.nombreSector};
       }
       String? profileDisplayName;
-      final user = Supabase.instance.client.auth.currentUser;
-      if (user != null) {
-        try {
-          final row = await Supabase.instance.client
-              .from('profiles')
-              .select('display_name')
-              .eq('id', user.id)
-              .maybeSingle();
-          final dn = row?['display_name']?.toString().trim();
-          if (dn != null && dn.isNotEmpty) profileDisplayName = dn;
-        } catch (_) {}
-      }
+      try {
+        final profile = await _profileRepo.getCurrentUserProfile();
+        final dn = profile?.displayName?.trim();
+        if (dn != null && dn.isNotEmpty) profileDisplayName = dn;
+      } catch (_) {}
       if (mounted) {
         setState(() {
           _casos = list;
@@ -125,19 +120,49 @@ class _HomeScreenState extends State<HomeScreen> {
           _sectoresActivos = activos.length;
           _profileDisplayName = profileDisplayName;
           _loading = false;
+          _errorCarga = null;
         });
       }
-    } catch (_) {
+    } catch (e) {
+      // Error de red/servidor: conservar los datos previos y avisar.
       if (mounted) {
         setState(() {
-          _casos = [];
-          _nombreSectorPorId = {};
-          _sectoresActivos = 0;
-          _profileDisplayName = null;
           _loading = false;
+          _errorCarga = 'No se pudieron cargar los datos. Verifica tu conexión.';
         });
       }
     }
+  }
+
+  Widget _buildErrorBanner() {
+    return Container(
+      padding: const EdgeInsets.fromLTRB(14, 10, 8, 10),
+      decoration: BoxDecoration(
+        color: const Color(0xFFFFF4E5),
+        border: Border.all(color: const Color(0xFFFFB95F)),
+        borderRadius: BorderRadius.circular(12),
+      ),
+      child: Row(
+        children: [
+          const Icon(Icons.wifi_off_outlined,
+              size: 20, color: Color(0xFF653E00)),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Text(
+              _errorCarga ?? '',
+              style: GoogleFonts.inter(
+                fontSize: 13,
+                color: const Color(0xFF653E00),
+              ),
+            ),
+          ),
+          TextButton(
+            onPressed: _load,
+            child: const Text('Reintentar'),
+          ),
+        ],
+      ),
+    );
   }
 
   int _countEstado(String clave) {
@@ -422,6 +447,10 @@ class _HomeScreenState extends State<HomeScreen> {
                       color: _HomeTokens.gunPowder,
                     ),
                   ),
+                  if (_errorCarga != null) ...[
+                    const SizedBox(height: 16),
+                    _buildErrorBanner(),
+                  ],
                   const SizedBox(height: 24),
                   _buildQuickActions(isDesktop),
                   const SizedBox(height: 12),

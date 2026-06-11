@@ -3,6 +3,8 @@ import 'package:flutter/services.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
+import '../utils/errors.dart';
+
 /// Colores y medidas alineados al frame de login en Figma (node 3346:927).
 class _LoginTokens {
   static const Color bg = Color(0xFFFCF8FF);
@@ -104,11 +106,29 @@ class _LoginScreenState extends State<LoginScreen> {
         email: emailCtrl.text.trim(),
         password: passCtrl.text,
       );
-    } catch (_) {
+    } on AuthException catch (e) {
       if (mounted) {
-        setState(
-          () => _errorMessage = 'Correo o contraseña incorrectos.',
-        );
+        final msg = e.message.toLowerCase();
+        final esFalloDeRed = e is AuthRetryableFetchException ||
+            msg.contains('socket') ||
+            msg.contains('connection') ||
+            msg.contains('failed host lookup') ||
+            msg.contains('timeout');
+        setState(() {
+          if (esFalloDeRed) {
+            _errorMessage =
+                'Sin conexión con el servidor. Revisa tu internet e intenta nuevamente.';
+          } else if (msg.contains('invalid login credentials') ||
+              msg.contains('invalid_credentials')) {
+            _errorMessage = 'Correo o contraseña incorrectos.';
+          } else {
+            _errorMessage = 'No se pudo iniciar sesión. Intenta nuevamente.';
+          }
+        });
+      }
+    } catch (e) {
+      if (mounted) {
+        setState(() => _errorMessage = mensajeErrorUsuario(e));
       }
     } finally {
       if (mounted) setState(() => cargando = false);

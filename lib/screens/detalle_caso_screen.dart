@@ -3,14 +3,13 @@ import 'package:flutter/services.dart';
 import 'package:pdf/pdf.dart';
 import 'package:pdf/widgets.dart' as pw;
 import 'package:printing/printing.dart';
-import 'package:supabase_flutter/supabase_flutter.dart';
-
 import '../models/caso_epidemiologico.dart';
 import '../models/historial_estado_caso.dart';
 import '../models/sector.dart';
 import '../repositories/app_repositories.dart';
 import '../utils/epi_db_constants.dart';
 import '../utils/epi_edad.dart';
+import '../utils/epi_ocupacion.dart';
 import '../utils/epi_identificador_parcial.dart';
 import '../utils/epidemiologia_ui.dart';
 import '../utils/identificador_parcial_input_formatter.dart';
@@ -462,11 +461,16 @@ class DetalleCasoScreen extends StatefulWidget {
 class _DetalleCasoScreenState extends State<DetalleCasoScreen> {
   final _casoRepo = AppRepositories.casoEpidemiologico;
   final _sectorRepo = AppRepositories.sector;
+  final _catalogoRepo = AppRepositories.catalogo;
 
   CasoEpidemiologico? _caso;
   Sector? _sector;
   List<HistorialEstadoCaso> _historial = [];
   bool _cargando = true;
+  bool _loadError = false;
+
+  /// Si hubo ediciones, al volver se devuelve `true` para que la lista refresque.
+  bool _huboCambios = false;
   bool _isSavingEstado = false;
   bool _isSavingObservacion = false;
   bool _isExporting = false;
@@ -487,16 +491,10 @@ class _DetalleCasoScreenState extends State<DetalleCasoScreen> {
       setState(() => _ocupacionesCargando = true);
     }
     try {
-      final response = await Supabase.instance.client
-          .from('catalogo_ocupaciones')
-          .select('nombre')
-          .eq('activo', true)
-          .order('orden', ascending: true);
+      final ocupaciones = await _catalogoRepo.getOcupacionesActivas();
       if (!mounted) return;
       setState(() {
-        _ocupaciones = (response as List)
-            .map((e) => e['nombre'].toString())
-            .toList();
+        _ocupaciones = ocupaciones.map((o) => o.nombre).toList();
         _ocupacionesCargando = false;
       });
     } catch (_) {
@@ -515,7 +513,11 @@ class _DetalleCasoScreenState extends State<DetalleCasoScreen> {
   }
 
   Future<void> _cargar() async {
-    setState(() => _cargando = true);
+    if (!mounted) return;
+    setState(() {
+      _cargando = true;
+      _loadError = false;
+    });
     try {
       final c = await _casoRepo.getCasoById(widget.idCaso);
       Sector? s;
@@ -537,6 +539,7 @@ class _DetalleCasoScreenState extends State<DetalleCasoScreen> {
         setState(() {
           _caso = null;
           _cargando = false;
+          _loadError = true;
         });
       }
     }
@@ -698,6 +701,7 @@ class _DetalleCasoScreenState extends State<DetalleCasoScreen> {
       setState(() {
         _caso = actualizado;
         _historial = historial;
+        _huboCambios = true;
       });
       _showSuccess('Estado actualizado correctamente');
     } catch (e, st) {
@@ -793,7 +797,9 @@ class _DetalleCasoScreenState extends State<DetalleCasoScreen> {
       },
     );
 
-    controller.dispose();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      controller.dispose();
+    });
     if (!mounted) return;
     if (resultado != null) {
       await _actualizarObservacion(resultado);
@@ -810,7 +816,10 @@ class _DetalleCasoScreenState extends State<DetalleCasoScreen> {
         observacionGeneral: observacion.isEmpty ? null : observacion,
       );
       if (!mounted) return;
-      setState(() => _caso = actualizado);
+      setState(() {
+        _caso = actualizado;
+        _huboCambios = true;
+      });
       _showSuccess('Observación actualizada correctamente');
     } catch (e, st) {
       debugPrint('DetalleCasoScreen _actualizarObservacion: $e');
@@ -849,11 +858,10 @@ class _DetalleCasoScreenState extends State<DetalleCasoScreen> {
     // Si la ocupación guardada no está en el catálogo actual, inicializar
     // como null y mostrar aviso informativo bajo el dropdown.
     final ocupacionInicial =
-        (tieneOcupOriginal && _ocupaciones.contains(ocupOriginal))
-            ? ocupOriginal
-            : null;
-    final mostrarAvisoNoEnCatalogo =
-        tieneOcupOriginal && !_ocupaciones.contains(ocupOriginal);
+        ocupacionSeleccionFormulario(caso.ocupacion, _ocupaciones);
+    final mostrarAvisoNoEnCatalogo = tieneOcupOriginal &&
+        ocupacionInicial != ocupOriginal &&
+        !_ocupaciones.contains(ocupOriginal);
     String? ocupacion = ocupacionInicial;
 
     try {
@@ -875,7 +883,8 @@ class _DetalleCasoScreenState extends State<DetalleCasoScreen> {
               final origIdp = (caso.identificadorParcial ?? '').toUpperCase();
               final contactos = int.tryParse(contactosCtrl.text.trim()) ?? 0;
               final origContactos = caso.numeroContactos ?? 0;
-              final ocupIgual = (ocupacion ?? '') == (ocupacionInicial ?? '');
+              final ocupIgual = ocupacionParaPersistir(ocupacion) ==
+                  ocupacionParaPersistir(ocupacionInicial);
               return idp != origIdp ||
                   genero != caso.genero ||
                   !_esMismaFecha(fechaNac, caso.fechaNacimiento) ||
@@ -1004,18 +1013,8 @@ class _DetalleCasoScreenState extends State<DetalleCasoScreen> {
                           disabledHint: const Text('Cargando ocupaciones…'),
                           items: _ocupacionesCargando
                               ? const <DropdownMenuItem<String>>[]
-                              : [
-                                  DropdownMenuItem<String>(
-                                    value: null,
-                                    child: Text(
-                                      'No informa',
-                                      style: TextStyle(
-                                        fontStyle: FontStyle.italic,
-                                        color: cs.onSurfaceVariant,
-                                      ),
-                                    ),
-                                  ),
-                                  ...ocupaciones.map(
+                              : ocupaciones
+                                  .map(
                                     (o) => DropdownMenuItem<String>(
                                       value: o,
                                       child: Text(
@@ -1023,8 +1022,8 @@ class _DetalleCasoScreenState extends State<DetalleCasoScreen> {
                                         overflow: TextOverflow.ellipsis,
                                       ),
                                     ),
-                                  ),
-                                ],
+                                  )
+                                  .toList(),
                           onChanged: _ocupacionesCargando
                               ? null
                               : (v) => setModalState(() => ocupacion = v),
@@ -1089,7 +1088,7 @@ class _DetalleCasoScreenState extends State<DetalleCasoScreen> {
                                 identCtrl.text.trim().toUpperCase(),
                             'genero': genero,
                             'fechaNacimiento': fechaNac,
-                            'ocupacion': ocupacion,
+                            'ocupacion': ocupacionParaPersistir(ocupacion),
                             'numeroContactos':
                                 int.parse(contactosCtrl.text.trim()),
                           });
@@ -1115,8 +1114,12 @@ class _DetalleCasoScreenState extends State<DetalleCasoScreen> {
         );
       }
     } finally {
-      identCtrl.dispose();
-      contactosCtrl.dispose();
+      // El route del dialog puede reconstruirse un frame más tras Navigator.pop;
+      // diferir dispose evita "TextEditingController was used after being disposed".
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        identCtrl.dispose();
+        contactosCtrl.dispose();
+      });
     }
   }
 
@@ -1141,7 +1144,10 @@ class _DetalleCasoScreenState extends State<DetalleCasoScreen> {
         numeroContactos: numeroContactos,
       );
       if (!mounted) return;
-      setState(() => _caso = actualizado);
+      setState(() {
+        _caso = actualizado;
+        _huboCambios = true;
+      });
       _showSuccess('Datos del caso actualizados correctamente');
     } catch (e, st) {
       debugPrint('DetalleCasoScreen _actualizarDatosCaso: $e');
@@ -1423,7 +1429,7 @@ class _DetalleCasoScreenState extends State<DetalleCasoScreen> {
               gridTwo([
                 field('Género', generoLabel),
                 field('Fecha de nacimiento', fmtDia(caso.fechaNacimiento)),
-                field('Ocupación', value(caso.ocupacion)),
+                field('Ocupación', ocupacionParaMostrar(caso.ocupacion)),
                 field('Número de contactos', contactosStr),
               ]),
               pw.SizedBox(height: 24),
@@ -1532,7 +1538,33 @@ class _DetalleCasoScreenState extends State<DetalleCasoScreen> {
     if (_caso == null) {
       return Scaffold(
         appBar: AppBar(title: const Text('Caso')),
-        body: const Center(child: Text('Caso no encontrado')),
+        body: Center(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(
+                _loadError ? Icons.cloud_off_outlined : Icons.search_off,
+                size: 48,
+                color: Theme.of(context).colorScheme.onSurfaceVariant,
+              ),
+              const SizedBox(height: 12),
+              Text(
+                _loadError
+                    ? 'No se pudo cargar el caso.\nRevisa tu conexión e inténtalo de nuevo.'
+                    : 'Caso no encontrado',
+                textAlign: TextAlign.center,
+              ),
+              if (_loadError) ...[
+                const SizedBox(height: 16),
+                FilledButton.icon(
+                  onPressed: _cargar,
+                  icon: const Icon(Icons.refresh),
+                  label: const Text('Reintentar'),
+                ),
+              ],
+            ],
+          ),
+        ),
       );
     }
     final caso = _caso!;
@@ -1552,33 +1584,41 @@ class _DetalleCasoScreenState extends State<DetalleCasoScreen> {
       exportando: _isExporting,
     );
 
-    return Scaffold(
-      appBar: _buildAppBar(
-        tituloCodigo: tituloCodigo,
-        caso: caso,
-      ),
-      body: Align(
-        alignment: Alignment.topCenter,
-        child: ConstrainedBox(
-          constraints: const BoxConstraints(maxWidth: kContentMaxWidth),
-          child: LayoutBuilder(
-            builder: (context, constraints) {
-              return SingleChildScrollView(
-                padding: const EdgeInsets.fromLTRB(16, 16, 16, 24),
-                child: _DetalleCasoLayout(
-                  maxWidth: constraints.maxWidth,
-                  caso: caso,
-                  sector: _sector,
-                  historial: _historial,
-                  fmtFecha: _fmtFecha,
-                  estadoChipBuilder: _detalleEstadoChip,
-                ),
-              );
-            },
+    return PopScope(
+      canPop: false,
+      onPopInvokedWithResult: (didPop, result) {
+        if (didPop) return;
+        // Devuelve true si hubo ediciones, para que el listado se refresque.
+        Navigator.of(context).pop(_huboCambios);
+      },
+      child: Scaffold(
+        appBar: _buildAppBar(
+          tituloCodigo: tituloCodigo,
+          caso: caso,
+        ),
+        body: SingleChildScrollView(
+          padding: const EdgeInsets.fromLTRB(16, 16, 16, 24),
+          child: Align(
+            alignment: Alignment.topCenter,
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: kContentMaxWidth),
+              child: LayoutBuilder(
+                builder: (context, constraints) {
+                  return _DetalleCasoLayout(
+                    maxWidth: constraints.maxWidth,
+                    caso: caso,
+                    sector: _sector,
+                    historial: _historial,
+                    fmtFecha: _fmtFecha,
+                    estadoChipBuilder: _detalleEstadoChip,
+                  );
+                },
+              ),
+            ),
           ),
         ),
+        bottomNavigationBar: barraAcciones,
       ),
-      bottomNavigationBar: barraAcciones,
     );
   }
 
@@ -1683,7 +1723,10 @@ class _DetalleCasoLayout extends StatelessWidget {
       fmtFecha: fmtFecha,
       estadoChipBuilder: estadoChipBuilder,
     );
-    final wUbi = _BloqueUbicacionTerritorial(sector: sector);
+    final wUbi = _BloqueUbicacionTerritorial(
+      sector: sector,
+      fillHeight: twoCols,
+    );
     final wDatos = _CardDatosDelCaso(caso: caso);
     final wObs = _BloqueObservacionGeneral(observacion: caso.observacionGeneral);
     final wHist = _CardHistorialEstado(
@@ -1711,13 +1754,15 @@ class _DetalleCasoLayout extends StatelessWidget {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        Row(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Expanded(child: wIdent),
-            const SizedBox(width: _gap),
-            Expanded(child: wUbi),
-          ],
+        IntrinsicHeight(
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Expanded(child: wIdent),
+              const SizedBox(width: _gap),
+              Expanded(child: wUbi),
+            ],
+          ),
         ),
         const SizedBox(height: _gap),
         Row(
@@ -2286,7 +2331,7 @@ class _DatosCasoGrid extends StatelessWidget {
       _MiniCampo(
         icon: Icons.work_outline,
         label: 'Ocupación',
-        value: (caso.ocupacion ?? '').trim(),
+        value: ocupacionParaMostrar(caso.ocupacion),
       ),
       _MiniCampo(
         icon: Icons.group_outlined,
@@ -2397,46 +2442,133 @@ class _HistorialVacio extends StatelessWidget {
 
 class _BloqueUbicacionTerritorial extends StatelessWidget {
   final Sector? sector;
+  final bool fillHeight;
 
-  const _BloqueUbicacionTerritorial({required this.sector});
+  const _BloqueUbicacionTerritorial({
+    required this.sector,
+    this.fillHeight = false,
+  });
+
+  Widget _notaPrivacidad(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+      decoration: BoxDecoration(
+        color: cs.surfaceContainerHighest.withValues(alpha: 0.4),
+        borderRadius: BorderRadius.circular(8),
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Icon(
+            Icons.shield_outlined,
+            size: 14,
+            color: cs.onSurfaceVariant,
+          ),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Text(
+              'Solo sector territorial. No se almacena domicilio exacto.',
+              style: TextStyle(
+                fontSize: 12,
+                height: 1.4,
+                color: cs.onSurfaceVariant,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildCard(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+    final s = sector;
+    final titleColor = cs.onSurfaceVariant;
+    final titleStyle = TextStyle(
+      fontSize: 13,
+      fontWeight: FontWeight.w500,
+      height: 1.25,
+      color: titleColor,
+      letterSpacing: 0,
+    );
+
+    final columnBody = Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      mainAxisSize: fillHeight ? MainAxisSize.max : MainAxisSize.min,
+      children: [
+        Row(
+          crossAxisAlignment: CrossAxisAlignment.center,
+          children: [
+            Icon(Icons.place_outlined, size: 16, color: titleColor),
+            const SizedBox(width: 8),
+            Expanded(
+              child: Text(
+                'Ubicación territorial',
+                style: titleStyle,
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 14),
+        if (s == null)
+          Text(
+            'No hay información de sector para este caso.',
+            style: TextStyle(
+              color: cs.onSurfaceVariant,
+              fontSize: 14,
+            ),
+          )
+        else ...[
+          _detailInfoRow(
+            context,
+            icon: Icons.map_outlined,
+            label: 'Sector',
+            value: s.nombreSector,
+          ),
+          const SizedBox(height: 14),
+          _detailInfoRow(
+            context,
+            icon: Icons.location_city_outlined,
+            label: 'Comuna',
+            value: s.comuna,
+          ),
+        ],
+        if (fillHeight) const Spacer() else const SizedBox(height: 14),
+        _notaPrivacidad(context),
+      ],
+    );
+
+    return Card(
+      elevation: 1,
+      margin: EdgeInsets.zero,
+      clipBehavior: Clip.antiAlias,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(18),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: columnBody,
+      ),
+    );
+  }
 
   @override
   Widget build(BuildContext context) {
-    final cs = Theme.of(context).colorScheme;
-    final s = sector;
-
+    final card = _buildCard(context);
+    if (fillHeight) {
+      return Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Expanded(child: card),
+          const SizedBox(height: 12),
+        ],
+      );
+    }
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        _detailSectionCard(
-          context,
-          title: 'Ubicación territorial',
-          icon: Icons.place_outlined,
-          children: [
-            if (s == null)
-              Text(
-                'No hay información de sector para este caso.',
-                style: TextStyle(
-                  color: cs.onSurfaceVariant,
-                  fontSize: 14,
-                ),
-              )
-            else ...[
-              _detailInfoRow(
-                context,
-                icon: Icons.map_outlined,
-                label: 'Sector',
-                value: s.nombreSector,
-              ),
-              _detailInfoRow(
-                context,
-                icon: Icons.location_city_outlined,
-                label: 'Comuna',
-                value: s.comuna,
-              ),
-            ],
-          ],
-        ),
+        card,
         const SizedBox(height: 12),
       ],
     );
@@ -2668,9 +2800,10 @@ class _BarraAccionesDetalle extends StatelessWidget {
         ),
         padding:
             const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-        child: LayoutBuilder(
-          builder: (ctx, c) {
-            if (c.maxWidth < 600) {
+        child: Builder(
+          builder: (ctx) {
+            final screenWidth = MediaQuery.of(ctx).size.width;
+            if (screenWidth < 600) {
               return Column(
                 mainAxisSize: MainAxisSize.min,
                 crossAxisAlignment: CrossAxisAlignment.stretch,

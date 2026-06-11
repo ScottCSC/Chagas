@@ -2,6 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
+import '../repositories/app_repositories.dart';
+
 /// Coincide con `pubspec.yaml` → version (sin dependencia package_info).
 const String _kAppVersionLabel = '1.0.0+1';
 
@@ -26,6 +28,7 @@ class PerfilScreen extends StatefulWidget {
 
 class _PerfilScreenState extends State<PerfilScreen> {
   final _sb = Supabase.instance.client;
+  final _profileRepo = AppRepositories.profile;
 
   bool _cargando = true;
   String? _role;
@@ -44,14 +47,10 @@ class _PerfilScreenState extends State<PerfilScreen> {
     }
 
     try {
-      final row = await _sb
-          .from('profiles')
-          .select('role')
-          .eq('id', user.id)
-          .maybeSingle();
+      final profile = await _profileRepo.getCurrentUserProfile();
       if (!mounted) return;
       setState(() {
-        _role = row?['role']?.toString();
+        _role = profile?.role;
         _cargando = false;
       });
     } catch (_) {
