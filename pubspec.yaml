@@ -70,8 +70,8 @@ flutter:
 
   assets:
     - assets/images/chagas_tracker_logo.png
-  # Solo desarrollo local; en CI/producción preferir --dart-define.
-    - .env
+  # SUPABASE_URL y SUPABASE_ANON_KEY: --dart-define en build (Vercel/CI).
+  # Desarrollo local: flutter run --dart-define-from-file=.env
 
   # An image asset can refer to one or more resolution-specific "variants", see
   # https://flutter.dev/to/resolution-aware-images
