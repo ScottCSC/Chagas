@@ -102,19 +102,49 @@ class _PerfilScreenState extends State<PerfilScreen> {
   }
 
   void _mostrarAcercaDe() {
-    showAboutDialog(
+    showDialog<void>(
       context: context,
-      applicationName: 'Chagas Tracker',
-      applicationVersion: _kAppVersionLabel,
-      applicationIcon: Icon(Icons.monitor_heart_rounded,
-          size: 40, color: _PerfilTokens.royalBlue),
-      children: [
-        Text(
-          'Aplicación para registro epidemiológico anónimo de casos de Chagas '
-          'en Monte Patria. Enfoque territorial, sin datos clínicos identificables.',
-          style: GoogleFonts.inter(fontSize: 14, height: 1.45),
+      builder: (ctx) => AlertDialog(
+        icon: Icon(
+          Icons.monitor_heart_rounded,
+          size: 40,
+          color: _PerfilTokens.royalBlue,
         ),
-      ],
+        title: Text(
+          'Chagas Tracker',
+          style: GoogleFonts.publicSans(fontWeight: FontWeight.w700),
+        ),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              'Aplicación para registro epidemiológico anónimo de casos de '
+              'Chagas en Monte Patria.',
+              style: GoogleFonts.inter(fontSize: 14, height: 1.45),
+            ),
+            const SizedBox(height: 10),
+            Text(
+              'Enfoque territorial, sin datos clínicos identificables.',
+              style: GoogleFonts.inter(fontSize: 14, height: 1.45),
+            ),
+            const SizedBox(height: 16),
+            Text(
+              'Versión $_kAppVersionLabel',
+              style: GoogleFonts.inter(
+                fontSize: 12,
+                color: _PerfilTokens.paleSky,
+              ),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('Cerrar'),
+          ),
+        ],
+      ),
     );
   }
 

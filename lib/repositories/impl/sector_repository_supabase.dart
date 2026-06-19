@@ -1,6 +1,7 @@
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../../models/sector.dart';
+import '../../utils/epi_sectores.dart';
 import '../sector_repository.dart';
 
 class SectorRepositorySupabase implements SectorRepository {
@@ -17,9 +18,11 @@ class SectorRepositorySupabase implements SectorRepository {
         .order('nombre_sector')
         .limit(limit)
         .timeout(const Duration(seconds: 15));
-    return (res as List)
-        .map((e) => Sector.fromMap(Map<String, dynamic>.from(e as Map)))
-        .toList();
+    return filtrarSectoresTerritorialesPermitidos(
+      (res as List)
+          .map((e) => Sector.fromMap(Map<String, dynamic>.from(e as Map)))
+          .toList(),
+    );
   }
 
   @override
