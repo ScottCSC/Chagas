@@ -322,8 +322,7 @@ class HomeScreenState extends State<HomeScreen> {
       icon: Icons.article_outlined,
       iconColor: const Color(0xFF0058BC),
       title: 'Ver casos registrados',
-      subtitle:
-          isDesktop ? 'Consulta y filtros' : 'Registro epidemiológico',
+      subtitle: 'Consulta y filtros',
       onTap: () => widget.onGoToTab(2),
       borderRadius: 18,
       stacked: isDesktop,
@@ -436,15 +435,6 @@ class HomeScreenState extends State<HomeScreen> {
                       fontWeight: FontWeight.w700,
                       height: 32 / 24,
                       color: _HomeTokens.shark,
-                    ),
-                  ),
-                  const SizedBox(height: 4),
-                  Text(
-                    'Dashboard epidemiológico territorial · equipo programa Chagas.',
-                    style: GoogleFonts.inter(
-                      fontSize: 16,
-                      height: 24 / 16,
-                      color: _HomeTokens.gunPowder,
                     ),
                   ),
                   if (_errorCarga != null) ...[
