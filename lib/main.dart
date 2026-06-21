@@ -8,21 +8,25 @@ import 'screens/main_shell.dart';
 import 'screens/login_screen.dart';
 import 'services/network_service.dart';
 
-Future<void> main() async {
-  WidgetsFlutterBinding.ensureInitialized();
+class _SupabaseConfig {
+  const _SupabaseConfig({required this.url, required this.anonKey});
+  final String url;
+  final String anonKey;
+}
 
+Future<_SupabaseConfig?> _loadSupabaseConfig() async {
   const isDemo = bool.fromEnvironment('DEMO_MODE', defaultValue: false);
-  const supabaseUrlDefine = String.fromEnvironment('SUPABASE_URL');
-  const supabaseAnonKeyDefine = String.fromEnvironment('SUPABASE_ANON_KEY');
+  const urlDefine = String.fromEnvironment('SUPABASE_URL');
+  const keyDefine = String.fromEnvironment('SUPABASE_ANON_KEY');
 
-  if (supabaseUrlDefine.isEmpty || supabaseAnonKeyDefine.isEmpty) {
-    try {
-      await dotenv.load(
-        fileName: isDemo ? '.env.demo' : '.env',
-      );
-    } catch (_) {
-      // Sin asset .env (p. ej. build web sin el archivo en pubspec): usar --dart-define.
-    }
+  if (urlDefine.isNotEmpty && keyDefine.isNotEmpty) {
+    return _SupabaseConfig(url: urlDefine, anonKey: keyDefine);
+  }
+
+  try {
+    await dotenv.load(fileName: isDemo ? '.env.demo' : '.env');
+  } catch (_) {
+    // Web local sin asset .env: usar --dart-define-from-file=.env
   }
 
   String? envVar(String key) {
@@ -31,24 +35,85 @@ Future<void> main() async {
     return (v == null || v.isEmpty) ? null : v;
   }
 
-  final supabaseUrl =
-      supabaseUrlDefine.isNotEmpty ? supabaseUrlDefine : envVar('SUPABASE_URL');
-  final supabaseAnonKey = supabaseAnonKeyDefine.isNotEmpty
-      ? supabaseAnonKeyDefine
-      : envVar('SUPABASE_ANON_KEY');
+  final url = envVar('SUPABASE_URL');
+  final key = envVar('SUPABASE_ANON_KEY');
+  if (url == null || key == null) return null;
+  return _SupabaseConfig(url: url, anonKey: key);
+}
 
-  if (supabaseUrl == null ||
-      supabaseUrl.isEmpty ||
-      supabaseAnonKey == null ||
-      supabaseAnonKey.isEmpty) {
-    throw StateError(
-      'Configura SUPABASE_URL y SUPABASE_ANON_KEY con --dart-define.',
+class _ConfigErrorApp extends StatelessWidget {
+  const _ConfigErrorApp();
+
+  @override
+  Widget build(BuildContext context) {
+    return MaterialApp(
+      debugShowCheckedModeBanner: false,
+      home: Scaffold(
+        body: SafeArea(
+          child: Center(
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: 520),
+              child: Padding(
+                padding: const EdgeInsets.all(24),
+                child: Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    Icon(Icons.settings_outlined,
+                        size: 48, color: Colors.grey.shade600),
+                    const SizedBox(height: 16),
+                    Text(
+                      'Falta configuración de Supabase',
+                      textAlign: TextAlign.center,
+                      style: Theme.of(context).textTheme.titleLarge,
+                    ),
+                    const SizedBox(height: 12),
+                    const Text(
+                      'En desarrollo local, ejecuta la app con tu archivo .env '
+                      '(no se sube a GitHub):',
+                      textAlign: TextAlign.center,
+                    ),
+                    const SizedBox(height: 16),
+                    Container(
+                      padding: const EdgeInsets.all(12),
+                      decoration: BoxDecoration(
+                        color: Colors.grey.shade100,
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                      child: const SelectableText(
+                        'flutter run -d edge --dart-define-from-file=.env',
+                        style: TextStyle(fontFamily: 'monospace', fontSize: 13),
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    const Text(
+                      'O en PowerShell: .\\scripts\\run-web.ps1',
+                      textAlign: TextAlign.center,
+                      style: TextStyle(fontSize: 13),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        ),
+      ),
     );
+  }
+}
+
+Future<void> main() async {
+  WidgetsFlutterBinding.ensureInitialized();
+
+  final config = await _loadSupabaseConfig();
+  if (config == null) {
+    runApp(const _ConfigErrorApp());
+    return;
   }
 
   await Supabase.initialize(
-    url: supabaseUrl,
-    anonKey: supabaseAnonKey,
+    url: config.url,
+    anonKey: config.anonKey,
   );
 
   await NetworkService.instance.init();
