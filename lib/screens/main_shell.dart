@@ -148,33 +148,16 @@ class _MainShellState extends State<MainShell> {
         final isOnline = snapshot.data ?? true;
         return PopScope(
           canPop: false,
-          onPopInvokedWithResult: (didPop, result) async {
+          onPopInvokedWithResult: (didPop, result) {
             if (didPop) return;
+            // Caso 2: en un tab distinto de Inicio → volver a Inicio
             if (_index != 0) {
               setState(() => _index = 0);
               _refreshHome();
               return;
             }
-            final salir = await showDialog<bool>(
-              context: context,
-              builder: (ctx) => AlertDialog(
-                title: const Text('Salir de la plataforma'),
-                content: const Text('¿Deseas salir de Chagas Tracker?'),
-                actions: [
-                  TextButton(
-                    onPressed: () => Navigator.pop(ctx, false),
-                    child: const Text('Cancelar'),
-                  ),
-                  ElevatedButton(
-                    onPressed: () => Navigator.pop(ctx, true),
-                    child: const Text('Salir'),
-                  ),
-                ],
-              ),
-            );
-            if (salir == true && context.mounted) {
-              SystemNavigator.pop();
-            }
+            // Caso 3: en la raíz de Inicio → salida estándar del sistema
+            SystemNavigator.pop();
           },
           child: LayoutBuilder(
             builder: (context, constraints) {
