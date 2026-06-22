@@ -117,17 +117,55 @@ class _NuevoCasoScreenState extends State<NuevoCasoScreen> {
     }
   }
 
+  IconData _generoIcon(String value) {
+    switch (value) {
+      case EpiGenero.femenino:
+        return Icons.woman_rounded;
+      case EpiGenero.masculino:
+        return Icons.man_rounded;
+      default:
+        return Icons.help_outline_rounded;
+    }
+  }
+
+  Color _generoIconColor(String value) {
+    switch (value) {
+      case EpiGenero.femenino:
+        return const Color(0xFFC2185B);
+      case EpiGenero.masculino:
+        return const Color(0xFF1565C0);
+      default:
+        return _RegistroTokens.paleSky;
+    }
+  }
+
   List<DropdownMenuItem<String>> _generoDropdownItems() {
     return _generoOptions
         .map(
-          (o) => DropdownMenuItem<String>(
-            value: o['value']!,
-            child: Text(
-              o['label']!,
-              overflow: TextOverflow.ellipsis,
-              style: GoogleFonts.inter(fontSize: 16),
-            ),
-          ),
+          (o) {
+            final value = o['value']!;
+            final label = o['label']!;
+            return DropdownMenuItem<String>(
+              value: value,
+              child: Row(
+                children: [
+                  Icon(
+                    _generoIcon(value),
+                    size: 22,
+                    color: _generoIconColor(value),
+                  ),
+                  const SizedBox(width: 10),
+                  Flexible(
+                    child: Text(
+                      label,
+                      overflow: TextOverflow.ellipsis,
+                      style: GoogleFonts.inter(fontSize: 16),
+                    ),
+                  ),
+                ],
+              ),
+            );
+          },
         )
         .toList();
   }
@@ -849,12 +887,12 @@ class _NuevoCasoScreenState extends State<NuevoCasoScreen> {
                         color: _RegistroTokens.shark,
                       ),
                       decoration: _fieldDecoration(
-                        label: 'Ocupación (opcional)',
+                        label: '',
                         hint: _ocupacionesCargando
                             ? 'Cargando ocupaciones…'
                             : 'Seleccionar ocupación',
                         prefixIcon: Icons.work_outline_rounded,
-                      ),
+                      ).copyWith(labelText: null),
                       disabledHint: Text(
                         'Cargando ocupaciones…',
                         style: GoogleFonts.inter(
