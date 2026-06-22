@@ -10,13 +10,14 @@ class _SplashTokens {
   static const Color track = Color(0xFFC7C4D8);
 }
 
-/// Pantalla de bienvenida animada que aparece antes del login/home mientras
-/// Supabase termina de inicializar.
+/// Pantalla de bienvenida animada que se muestra únicamente antes del login.
+/// Tras la animación revela [nextScreen] sin navegación global, para no
+/// interferir con la lógica de autenticación.
 class SplashScreen extends StatefulWidget {
-  const SplashScreen({super.key, required this.onComplete});
+  const SplashScreen({super.key, required this.nextScreen});
 
-  /// Devuelve el widget destino (login o home según sesión).
-  final Future<Widget> Function() onComplete;
+  /// Pantalla que se revela al terminar la animación (normalmente el login).
+  final Widget nextScreen;
 
   @override
   State<SplashScreen> createState() => _SplashScreenState();
@@ -35,7 +36,7 @@ class _SplashScreenState extends State<SplashScreen>
   late final Animation<double> _progressOpacity;
   late final Animation<double> _exitOpacity;
 
-  bool _navegado = false;
+  bool _terminado = false;
 
   @override
   void initState() {
@@ -105,39 +106,21 @@ class _SplashScreenState extends State<SplashScreen>
   }
 
   Future<void> _iniciarSecuencia() async {
-    final sinAnimaciones = MediaQuery.maybeOf(context)?.disableAnimations ?? false;
+    final sinAnimaciones =
+        MediaQuery.maybeOf(context)?.disableAnimations ?? false;
 
     if (sinAnimaciones) {
-      _controller.value = 1.0;
-      await Future<void>.delayed(const Duration(milliseconds: 200));
-      await _finalizar(animarSalida: false);
+      if (mounted) setState(() => _terminado = true);
       return;
     }
 
     await _controller.forward();
     // Fase 5: mantener la barra visible hasta ~2200ms totales.
     await Future<void>.delayed(const Duration(milliseconds: 1000));
-    await _finalizar(animarSalida: true);
-  }
-
-  Future<void> _finalizar({required bool animarSalida}) async {
-    if (_navegado || !mounted) return;
-    _navegado = true;
-
-    final destino = await widget.onComplete();
     if (!mounted) return;
-
-    if (animarSalida) {
-      await _exitController.forward();
-      if (!mounted) return;
-    }
-
-    Navigator.of(context).pushReplacement(
-      PageRouteBuilder<void>(
-        pageBuilder: (context, animation, secondaryAnimation) => destino,
-        transitionDuration: Duration.zero,
-      ),
-    );
+    await _exitController.forward();
+    if (!mounted) return;
+    setState(() => _terminado = true);
   }
 
   @override
@@ -149,6 +132,8 @@ class _SplashScreenState extends State<SplashScreen>
 
   @override
   Widget build(BuildContext context) {
+    if (_terminado) return widget.nextScreen;
+
     return Scaffold(
       backgroundColor: _SplashTokens.bg,
       body: AnimatedBuilder(

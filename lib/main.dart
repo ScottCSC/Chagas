@@ -140,14 +140,14 @@ class MyApp extends StatelessWidget {
         GlobalCupertinoLocalizations.delegate,
       ],
       theme: AppTheme.light(),
-      home: SplashScreen(
-        onComplete: () async => const _AuthGate(),
-      ),
+      home: const _AuthGate(),
     );
   }
 }
 
 /// Decide entre login y home según la sesión, reaccionando a cambios de auth.
+/// El splash animado se muestra únicamente como antesala del login; si ya hay
+/// sesión activa, se entra directo a la app sin splash.
 class _AuthGate extends StatelessWidget {
   const _AuthGate();
 
@@ -157,7 +157,9 @@ class _AuthGate extends StatelessWidget {
       stream: Supabase.instance.client.auth.onAuthStateChange,
       builder: (context, snapshot) {
         final session = Supabase.instance.client.auth.currentSession;
-        if (session == null) return const LoginScreen();
+        if (session == null) {
+          return const SplashScreen(nextScreen: LoginScreen());
+        }
         return const MainShell();
       },
     );
