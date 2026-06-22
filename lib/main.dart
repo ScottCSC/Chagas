@@ -6,6 +6,7 @@ import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'theme/app_theme.dart';
 import 'screens/main_shell.dart';
 import 'screens/login_screen.dart';
+import 'screens/splash_screen.dart';
 import 'services/network_service.dart';
 
 class _SupabaseConfig {
@@ -139,14 +140,26 @@ class MyApp extends StatelessWidget {
         GlobalCupertinoLocalizations.delegate,
       ],
       theme: AppTheme.light(),
-      home: StreamBuilder<AuthState>(
-        stream: Supabase.instance.client.auth.onAuthStateChange,
-        builder: (context, snapshot) {
-          final session = Supabase.instance.client.auth.currentSession;
-          if (session == null) return const LoginScreen();
-          return const MainShell();
-        },
+      home: SplashScreen(
+        onComplete: () async => const _AuthGate(),
       ),
+    );
+  }
+}
+
+/// Decide entre login y home según la sesión, reaccionando a cambios de auth.
+class _AuthGate extends StatelessWidget {
+  const _AuthGate();
+
+  @override
+  Widget build(BuildContext context) {
+    return StreamBuilder<AuthState>(
+      stream: Supabase.instance.client.auth.onAuthStateChange,
+      builder: (context, snapshot) {
+        final session = Supabase.instance.client.auth.currentSession;
+        if (session == null) return const LoginScreen();
+        return const MainShell();
+      },
     );
   }
 }
