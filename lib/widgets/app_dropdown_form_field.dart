@@ -65,7 +65,7 @@ class AppDropdownFormField<T> extends StatelessWidget {
         color: const Color(0xFF1B1B24),
       ),
       decoration: InputDecoration(
-        labelText: label,
+        labelText: label.isEmpty ? null : label,
         hintText: hint,
         filled: true,
         fillColor: Colors.white,

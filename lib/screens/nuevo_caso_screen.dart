@@ -1189,7 +1189,7 @@ class _NuevoCasoScreenState extends State<NuevoCasoScreen> {
         const SizedBox(height: 8),
         AppDropdownFormField<int>(
           key: ValueKey('sec_$_idSector'),
-          label: 'Sector territorial *',
+          label: '',
           initialValue: _idSector,
           items: _sectores
               .map(
